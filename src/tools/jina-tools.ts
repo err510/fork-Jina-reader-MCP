@@ -541,7 +541,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			"Search SSRN working papers (social science, economics, law, finance, management).",
 			{
 				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
-				num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
+				num: z.number().int().min(1).max(100).default(30),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
@@ -660,9 +660,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 				num: z.number().int().min(1).max(30).default(10),
 				return_url: z.boolean().default(false).describe("Return URLs and metadata instead of base64 images."),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
-				location: z.string().optional().describe("Location for search results, e.g., 'London', 'New York', 'Tokyo'"),
-				gl: z.string().optional().describe("Country code, e.g., 'dz' for Algeria"),
-				hl: z.string().optional().describe("Language code, e.g., 'zh-cn' for Simplified Chinese")
+				location: z.string().optional(),
+				gl: z.string().optional().describe("Country code, e.g. 'de'."),
+				hl: z.string().optional().describe("Language code, e.g. 'zh-cn'.")
 			},
 			async ({ query, num, return_url, tbs, location, gl, hl }: SearchImageArgs & { num: number }) => {
 				try {
@@ -764,12 +764,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			{
 				searches: z.array(z.object({
 					query: z.string(),
-					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of search results to return, between 1-100"),
+					num: z.number().int().min(1).max(100).default(30),
 					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
-					location: z.string().optional().describe("Location for search results, e.g., 'London', 'New York', 'Tokyo'"),
-					gl: z.string().optional().describe("Country code, e.g., 'dz' for Algeria"),
-					hl: z.string().optional().describe("Language code, e.g., 'zh-cn' for Simplified Chinese")
-				})).max(5).describe("Array of search configurations to execute in parallel (maximum 5 searches for optimal performance)")
+					location: z.string().optional(),
+					gl: z.string().optional().describe("Country code, e.g. 'de'."),
+					hl: z.string().optional().describe("Language code, e.g. 'zh-cn'.")
+				})).max(5).describe("Searches to run, up to 5.")
 			},
 			async ({ searches }: { searches: SearchWebArgs[] }) => {
 				try {
@@ -810,9 +810,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			{
 				searches: z.array(z.object({
 					query: z.string(),
-					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
+					num: z.number().int().min(1).max(100).default(30),
 					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
-				})).max(5).describe("Array of arXiv search configurations to execute in parallel (maximum 5 searches for optimal performance)")
+				})).max(5).describe("Searches to run, up to 5.")
 			},
 			async ({ searches }: { searches: SearchArxivArgs[] }) => {
 				try {
@@ -853,9 +853,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			{
 				searches: z.array(z.object({
 					query: z.string(),
-					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
+					num: z.number().int().min(1).max(100).default(30),
 					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
-				})).max(5).describe("Array of SSRN search configurations to execute in parallel (maximum 5 searches for optimal performance)")
+				})).max(5).describe("Searches to run, up to 5.")
 			},
 			async ({ searches }: { searches: SearchSsrnArgs[] }) => {
 				try {
@@ -896,8 +896,8 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			{
 				urls: z.array(z.object({
 					url: z.string().url(),
-					withAllLinks: z.boolean().default(false).describe("Set to true to extract and return all hyperlinks found on the page as structured data"),
-					withAllImages: z.boolean().default(false).describe("Set to true to extract and return all images found on the page as structured data"),
+					withAllLinks: z.boolean().default(false).describe("Also return every link on the page."),
+					withAllImages: z.boolean().default(false).describe("Also return every image on the page."),
 					question: z.string().optional().describe("Return only the passages answering this question, instead of the full body."),
 					chunk_size: z.number().int().min(1).max(4096).optional().describe("Passage size in words, default 100. Needs `question`."),
 					topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`.")
