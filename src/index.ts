@@ -4,7 +4,7 @@ import { registerJinaTools } from "./tools/jina-tools.js";
 import { stringify as yamlStringify } from "yaml";
 
 // Build-time constants (can be replaced by build tools)
-const SERVER_VERSION = "1.7.0";
+const SERVER_VERSION = "1.8.0";
 const SERVER_NAME = "jina-mcp";
 
 // Tool tags mapping for filtering
@@ -87,58 +87,20 @@ function parseToolFilter(url: URL): Set<string> | null {
 }
 
 
-// Server instructions for MCP tool discovery (SEO for LLM tool search)
-// Key principle: be specific to win relevant queries, avoid generic terms that cause false positives
-const SERVER_INSTRUCTIONS = `Web access and online content retrieval server.
+// Server instructions for MCP tool discovery (SEO for LLM tool search).
+// Kept to what actually routes a request: which tool, and the distinctions
+// between near-identical ones. The phrase lists this replaced restated the tool
+// names in a dozen ways each and were paid for on every request.
+const SERVER_INSTRUCTIONS = `Web access: search the live web, read URLs, search academic papers, and run Jina embedding/reranker utilities.
 
-WHEN TO USE THIS SERVER:
+Use for anything online - current events, a URL the user pasted, a claim needing a source. Not for local files, code execution, or databases.
 
-Web Search (use when user wants to find something ONLINE, not local files):
-- "search the web for...", "google...", "look up online...", "find on the internet..."
-- "what's the latest news on...", "current events about...", "recent updates on..."
-- Any query needing real-time or up-to-date information from the internet
-
-Deep Web Search (use when the answer lives in page text, not in titles/descriptions):
-- "deep search for...", "find detailed information about...", "search and read pages about..."
-- Any question where the answer is likely inside a page, not just the headline
-- Returns a paragraph-length passage read from each page instead of a search-engine
-  snippet fragment. Prefer over search_web when passage-level answers matter; slower
-  (typically 2-20s)
-
-URL/Webpage Reading (use when user provides a URL or link):
-- "read this URL: https://...", "what does this webpage say...", "summarize this link..."
-- "fetch the content from...", "extract text from this website..."
-- Any task involving a specific URL, http link, or webpage
-
-Academic Paper Search (use for scholarly/research queries):
-- "search arXiv for...", "find papers on arXiv about..."
-- "search SSRN for...", "find economics/finance/law papers..."
-- "find academic papers about...", "what research exists on..."
-
-BibTeX Citations (use when user needs citation/bibliography entries):
-- "get bibtex for...", "find citation for this paper..."
-- "search for bibtex entries...", "get bibliography entry for..."
-- Any request for LaTeX citations or academic references in BibTeX format
-
-Image Search (use when user wants to find images online):
-- "search for images of...", "find pictures of...", "find photos of..."
-
-Screenshot Capture (use when user wants to SEE a webpage):
-- "take a screenshot of this URL...", "capture this webpage visually..."
-- "show me what this website looks like..."
-
-Text Classification:
-- "classify this text as...", "categorize these texts into...", "is this text positive or negative..."
-- "label these documents...", "sentiment analysis of..."
-
-Semantic Reranking/Deduplication:
-- "rerank these results by relevance to...", "sort by semantic similarity..."
-- "deduplicate these texts/images...", "find unique items from..."
-
-PDF Extraction:
-- "extract figures from this PDF...", "get tables from PDF...", "extract equations from PDF..."
-
-NOT FOR: local file operations, code execution, database queries, non-web APIs.`;
+Picking a tool:
+- search_web returns engine snippets. search_web_deep reads each result page and returns the passage that answers the query - slower, use when the answer is inside a page rather than in its title.
+- read_url fetches one page as markdown. Pass its \`question\` to get only the answering passages instead of the whole body; this is much cheaper than reading a full page into context.
+- Prefer the parallel_* variants over repeated single calls.
+- search_arxiv for preprints, search_ssrn for social science and finance, search_bibtex for citations, search_jina_blog for Jina's own models and releases.
+- primer supplies the current time and user location; call it before answering anything time- or location-dependent.`;
 
 // Create the MCP server instance with request-scoped props
 // Note: We create a fresh server per request to avoid race conditions with concurrent requests

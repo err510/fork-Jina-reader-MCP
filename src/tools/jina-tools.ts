@@ -24,6 +24,16 @@ import {
 } from "../utils/search.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+/** Wall-clock budget for a parallel batch. Not a caller parameter: a model has
+ *  no basis for choosing a millisecond budget, and the old arg only ever got
+ *  its default. */
+const PARALLEL_TIMEOUT_MS = 30000;
+/** Question-grounded reads add a chunk-and-rerank pass after the fetch. */
+const QUESTION_READ_TIMEOUT_MS = 60000;
+/** Embedding model behind classify_text. An implementation detail, not a choice
+ *  the caller should have to make. */
+const CLASSIFY_MODEL = "jina-embeddings-v5-text-small";
+
 /**
  * Guess the media type of a raw base64 image from its leading bytes.
  *
@@ -61,7 +71,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("show_api_key")) {
 		server.tool(
 			"show_api_key",
-			"Return the bearer token from the Authorization header of the MCP settings, which is used to debug.",
+			"Return the bearer token from MCP settings. For debugging.",
 			{},
 			async () => {
 				const props = getProps();
@@ -82,7 +92,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("primer")) {
 		server.tool(
 			"primer",
-			"Get up-to-date contextual information of the current session to provide localized, time-aware responses. Use this when you need to know the current time, user's location, or network environment to give more relevant and personalized information.",
+			"Current time, user location and network environment for the session. Use before answering anything time- or location-dependent.",
 			{},
 			async () => {
 				try {
@@ -107,9 +117,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("guess_datetime_url")) {
 		server.tool(
 			"guess_datetime_url",
-			"Guess the last updated or published datetime of a web page. This tool examines HTTP headers, HTML metadata, Schema.org data, visible dates, JavaScript timestamps, HTML comments, Git information, RSS/Atom feeds, sitemaps, and international date formats to provide the most accurate update time with confidence scores. Returns the best guess timestamp and confidence level.",
+			"Guess when a page was published or last updated, with a confidence score. Checks HTTP headers, metadata, Schema.org, visible dates, feeds and sitemaps.",
 			{
-				url: z.string().url().describe("The complete HTTP/HTTPS URL of the webpage to guess datetime information")
+				url: z.string().url()
 			},
 			async ({ url }: { url: string }) => {
 				try {
@@ -133,11 +143,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("capture_screenshot_url")) {
 		server.tool(
 			"capture_screenshot_url",
-			"Capture high-quality screenshots of web pages in base64 encoded JPEG format. Use this tool when you need to visually inspect a website, take a snapshot for analysis, or show users what a webpage looks like.",
+			"Screenshot a page as base64 JPEG. Use when the page must be seen rather than read.",
 			{
-				url: z.string().url().describe("The complete HTTP/HTTPS URL of the webpage to capture (e.g., 'https://example.com')"),
-				firstScreenOnly: z.boolean().default(false).describe("Set to true for a single screen capture (faster), false for full page capture including content below the fold"),
-				return_url: z.boolean().default(false).describe("Set to true to return screenshot URLs instead of downloading images as base64")
+				url: z.string().url(),
+				firstScreenOnly: z.boolean().default(false).describe("Capture only the first screen instead of the full page. Faster."),
+				return_url: z.boolean().default(false).describe("Return URLs instead of base64 images.")
 			},
 			async ({ url, firstScreenOnly, return_url }: { url: string; firstScreenOnly: boolean; return_url: boolean }) => {
 				try {
@@ -219,14 +229,14 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("read_url")) {
 		server.tool(
 			"read_url",
-			"Extract and convert web page content to clean, readable markdown format. Perfect for reading articles, documentation, blog posts, or any web content. Use this when you need to analyze text content from websites, bypass paywalls, or get structured data. Pass `question` to read the page with a specific question in mind: the body is split into passages and only the best-matching ones are returned, which is far cheaper than pulling a whole page into context.",
+			"Fetch a URL (page or PDF) as clean markdown. Pass `question` to get only the passages answering it instead of the whole page - far cheaper than reading the full body into context.",
 			{
-				url: z.union([z.string().url(), z.array(z.string().url()).min(1).max(5)]).describe("The complete URL of the webpage or PDF file to read and convert (e.g., 'https://example.com/article'). Can be a single URL string or an array of up to 5 URLs for parallel reading."),
-				withAllLinks: z.boolean().optional().describe("Set to true to extract and return all hyperlinks found on the page as structured data"),
-				withAllImages: z.boolean().optional().describe("Set to true to extract and return all images found on the page as structured data"),
-				question: z.string().optional().describe("Read the page with this question in mind. The page is split into passages and scored with jina-reranker-v3.5, and only the top-ranked passages are returned instead of the full body — the same extraction search_web_deep applies to its result pages. Omit (default) to return the full content unchanged."),
-				chunk_size: z.number().int().min(1).max(4096).optional().describe("Target passage size when `question` is set (default 100), counted in words. Not a token count: 100 words is roughly 130-150 tokens of English. The same value gives a comparable passage in any script - it is converted to a byte budget, so CJK and Thai passages carry about as much as an English one rather than a fraction of it. Passages split only at sentence boundaries, so this is a target rather than a hard cut. Larger values return more surrounding context per passage; smaller values pinpoint the answer more tightly. Ignored without `question`."),
-				topk: z.number().int().min(1).max(50).optional().describe("How many top-ranked passages to return when `question` is set (default 1). Ignored without `question`.")
+				url: z.union([z.string().url(), z.array(z.string().url()).min(1).max(5)]).describe("Page or PDF URL, or up to 5 URLs to read in parallel."),
+				withAllLinks: z.boolean().optional().describe("Also return every link on the page."),
+				withAllImages: z.boolean().optional().describe("Also return every image on the page."),
+				question: z.string().optional().describe("Return only the passages answering this question, instead of the full body. Omit for the whole page."),
+				chunk_size: z.number().int().min(1).max(4096).optional().describe("Passage size in words, default 100. Larger gives more surrounding context, smaller pinpoints the answer. Comparable across scripts. Needs `question`."),
+				topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`.")
 			},
 			async ({ url, withAllLinks, withAllImages, question, chunk_size, topk }: { url: string | string[]; withAllLinks?: boolean; withAllImages?: boolean; question?: string; chunk_size?: number; topk?: number }) => {
 				try {
@@ -306,14 +316,14 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_web")) {
 		server.tool(
 			"search_web",
-			"Search the entire web for current information, news, articles, and websites. Use this when you need up-to-date information, want to find specific websites, research topics, or get the latest news. Ideal for answering questions about recent events, finding resources, or discovering relevant content.",
+			"Search the web. Returns titles, URLs and search-engine snippets.",
 			{
-				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]).describe("Search terms or keywords to find relevant web content (e.g., 'climate change news 2024', 'best pizza recipe'). Can be a single query string or an array of up to 5 queries for parallel search."),
-				num: z.number().int().min(1).max(100).default(30).describe("Maximum number of search results to return, between 1-100"),
-				tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour, can be qdr:h, qdr:d, qdr:w, qdr:m, qdr:y"),
-				location: z.string().optional().describe("Location for search results, e.g., 'London', 'New York', 'Tokyo'"),
-				gl: z.string().optional().describe("Country code, e.g., 'dz' for Algeria"),
-				hl: z.string().optional().describe("Language code, e.g., 'zh-cn' for Simplified Chinese")
+				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
+				num: z.number().int().min(1).max(100).default(30),
+				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
+				location: z.string().optional(),
+				gl: z.string().optional().describe("Country code, e.g. 'de'."),
+				hl: z.string().optional().describe("Language code, e.g. 'zh-cn'.")
 			},
 			async ({ query, num, tbs, location, gl, hl }: { query: string | string[]; num: number; tbs?: string; location?: string; gl?: string; hl?: string }) => {
 				try {
@@ -365,11 +375,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_web_deep")) {
 		server.tool(
 			"search_web_deep",
-			"Search the web, then read the result pages and return the passage from each that best answers the query, re-ranked by relevance. Regular search_web returns only the search engine's snippet, which is often a page fragment that does not answer the question; this reads the page itself and extracts a paragraph-length passage (~100 words). Best for questions whose answer is buried in page content rather than in titles or descriptions. Slower than search_web (typically 2-20s). Each result carries a snippet_source field: 'content' when the snippet came from the page body, 'serp' when the search engine's own snippet scored higher and was kept instead.",
+			"Search the web, then read each result page and return the passage that best answers the query. Use when the answer is in page text rather than in titles or snippets. Slower than search_web (2-20s).",
 			{
-				query: z.string().describe("Search terms or question to answer (e.g., 'how does TCP slow start work', 'what causes memory fragmentation')"),
-				num: z.number().int().min(1).max(10).default(5).describe("Number of results to return (1-10). Each result is drawn from a fully-read page; higher numbers take longer."),
-				snippet_source: z.enum(["auto", "content"]).default("auto").describe("'auto' (recommended) lets the extracted passage compete with the search engine's snippet and keeps whichever is more relevant, so some results may be short SERP snippets. 'content' returns only extracted page passages, omitting pages that could not be read — use it when you need full passages for grounding and can accept fewer than num results (occasionally zero)."),
+				query: z.string(),
+				num: z.number().int().min(1).max(10).default(5).describe("Results to return, 1-10. Each is a fully-read page, so higher is slower."),
+				snippet_source: z.enum(["auto", "content"]).default("auto").describe("'auto' keeps whichever is better, the page passage or the engine snippet. 'content' returns only page passages and omits unreadable pages, so you may get fewer than num."),
 			},
 			async ({ query, num, snippet_source }: { query: string; num: number; snippet_source: 'auto' | 'content' }) => {
 				try {
@@ -414,9 +424,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("expand_query")) {
 		server.tool(
 			"expand_query",
-			"Expand and rewrite search queries based on an up-to-date query expansion model. This tool takes an initial query and returns multiple expanded queries that can be used for more diversed and deeper searches. Useful for improving deep research results by searching broader and deeper.",
+			"Rewrite one query into several diverse queries, for broader search coverage.",
 			{
-				query: z.string().describe("The search query to expand (e.g., 'machine learning', 'climate change')")
+				query: z.string()
 			},
 			async ({ query }: { query: string }) => {
 				try {
@@ -472,11 +482,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_arxiv")) {
 		server.tool(
 			"search_arxiv",
-			"Search academic papers and preprints on arXiv repository. Perfect for finding research papers, scientific studies, technical papers, and academic literature. Use this when researching scientific topics, looking for papers by specific authors, or finding the latest research in fields like AI, physics, mathematics, computer science, etc.",
+			"Search arXiv preprints (physics, maths, CS, quantitative biology and finance).",
 			{
-				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]).describe("Academic search terms, author names, or research topics (e.g., 'transformer neural networks', 'Einstein relativity', 'machine learning optimization'). Can be a single query string or an array of up to 5 queries for parallel search."),
-				num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
-				tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour, can be qdr:h, qdr:d, qdr:w, qdr:m, qdr:y")
+				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
+				num: z.number().int().min(1).max(100).default(30),
+				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
 				try {
@@ -528,11 +538,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_ssrn")) {
 		server.tool(
 			"search_ssrn",
-			"Search academic papers and preprints on SSRN (Social Science Research Network). Perfect for finding research papers in social sciences, economics, law, finance, accounting, management, and humanities. Use this when researching social science topics, looking for working papers, or finding the latest research in business and economics fields.",
+			"Search SSRN working papers (social science, economics, law, finance, management).",
 			{
-				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]).describe("Academic search terms, author names, or research topics (e.g., 'corporate governance', 'behavioral finance', 'contract law'). Can be a single query string or an array of up to 5 queries for parallel search."),
+				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
 				num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
-				tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour, can be qdr:h, qdr:d, qdr:w, qdr:m, qdr:y")
+				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
 				try {
@@ -584,11 +594,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_jina_blog")) {
 		server.tool(
 			"search_jina_blog",
-			"Search Jina AI news and blog posts at jina.ai/news for articles about AI, machine learning, neural search, embeddings, and Jina products. Use this to find official Jina documentation, tutorials, product announcements, and technical deep-dives.",
+			"Search Jina AI's news and blog at jina.ai/news: product announcements, model releases, technical write-ups.",
 			{
-				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]).describe("Search terms to find relevant Jina blog posts (e.g., 'embeddings', 'reranker', 'ColBERT'). Can be a single query string or an array of up to 5 queries for parallel search."),
-				num: z.number().int().min(1).max(100).default(30).describe("Maximum number of blog posts to return, between 1-100"),
-				tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour, can be qdr:h, qdr:d, qdr:w, qdr:m, qdr:y")
+				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
+				num: z.number().int().min(1).max(100).default(30),
+				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
 				try {
@@ -644,12 +654,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_images")) {
 		server.tool(
 			"search_images",
-			"Search for images across the web, similar to Google Images. Use this when you need to find photos, illustrations, diagrams, charts, logos, or any visual content. Perfect for finding images to illustrate concepts, locating specific pictures, or discovering visual resources. Images are returned by default as small base64-encoded JPEG images.",
+			"Search the web for images. Returns base64 JPEGs by default.",
 			{
-				query: z.string().describe("Image search terms describing what you want to find (e.g., 'sunset over mountains', 'vintage car illustration', 'data visualization chart')"),
-				num: z.number().int().min(1).max(30).default(10).describe("Maximum number of images to return (1-30, default: 10)"),
-				return_url: z.boolean().default(false).describe("Set to true to return image URLs, title, shapes, and other metadata. By default, images are downloaded as base64 and returned as rendered images."),
-				tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour, can be qdr:h, qdr:d, qdr:w, qdr:m, qdr:y"),
+				query: z.string(),
+				num: z.number().int().min(1).max(30).default(10),
+				return_url: z.boolean().default(false).describe("Return URLs and metadata instead of base64 images."),
+				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
 				location: z.string().optional().describe("Location for search results, e.g., 'London', 'New York', 'Tokyo'"),
 				gl: z.string().optional().describe("Country code, e.g., 'dz' for Algeria"),
 				hl: z.string().optional().describe("Language code, e.g., 'zh-cn' for Simplified Chinese")
@@ -750,19 +760,18 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("parallel_search_web")) {
 		server.tool(
 			"parallel_search_web",
-			"Run multiple web searches in parallel for comprehensive topic coverage and diverse perspectives. For best results, provide multiple search queries that explore different aspects of your topic. You can use expand_query to help generate diverse queries, or create them yourself.",
+			"Run several web searches at once. Give queries covering different angles of the topic; expand_query can generate them.",
 			{
 				searches: z.array(z.object({
-					query: z.string().describe("Search terms or keywords to find relevant web content"),
+					query: z.string(),
 					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of search results to return, between 1-100"),
-					tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour"),
+					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
 					location: z.string().optional().describe("Location for search results, e.g., 'London', 'New York', 'Tokyo'"),
 					gl: z.string().optional().describe("Country code, e.g., 'dz' for Algeria"),
 					hl: z.string().optional().describe("Language code, e.g., 'zh-cn' for Simplified Chinese")
-				})).max(5).describe("Array of search configurations to execute in parallel (maximum 5 searches for optimal performance)"),
-				timeout: z.number().default(30000).describe("Timeout in milliseconds for all searches")
+				})).max(5).describe("Array of search configurations to execute in parallel (maximum 5 searches for optimal performance)")
 			},
-			async ({ searches, timeout }: { searches: SearchWebArgs[]; timeout: number }) => {
+			async ({ searches }: { searches: SearchWebArgs[] }) => {
 				try {
 					const props = getProps();
 
@@ -781,7 +790,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					};
 
 					// Execute parallel searches using utility
-					const results = await executeParallelSearches(uniqueSearches, webSearchFunction, { timeout });
+					const results = await executeParallelSearches(uniqueSearches, webSearchFunction, { timeout: PARALLEL_TIMEOUT_MS });
 
 					return {
 						content: formatParallelSearchResultsToContentItems(results),
@@ -797,16 +806,15 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("parallel_search_arxiv")) {
 		server.tool(
 			"parallel_search_arxiv",
-			"Run multiple arXiv searches in parallel for comprehensive research coverage and diverse academic angles. For best results, provide multiple search queries that explore different research angles and methodologies. You can use expand_query to help generate diverse queries, or create them yourself.",
+			"Run several arXiv searches at once. Give queries covering different research angles.",
 			{
 				searches: z.array(z.object({
-					query: z.string().describe("Academic search terms, author names, or research topics"),
+					query: z.string(),
 					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
-					tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour")
-				})).max(5).describe("Array of arXiv search configurations to execute in parallel (maximum 5 searches for optimal performance)"),
-				timeout: z.number().default(30000).describe("Timeout in milliseconds for all searches")
+					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
+				})).max(5).describe("Array of arXiv search configurations to execute in parallel (maximum 5 searches for optimal performance)")
 			},
-			async ({ searches, timeout }: { searches: SearchArxivArgs[]; timeout: number }) => {
+			async ({ searches }: { searches: SearchArxivArgs[] }) => {
 				try {
 					const props = getProps();
 
@@ -825,7 +833,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					};
 
 					// Execute parallel searches using utility
-					const results = await executeParallelSearches(uniqueSearches, arxivSearchFunction, { timeout });
+					const results = await executeParallelSearches(uniqueSearches, arxivSearchFunction, { timeout: PARALLEL_TIMEOUT_MS });
 
 					return {
 						content: formatParallelSearchResultsToContentItems(results),
@@ -841,16 +849,15 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("parallel_search_ssrn")) {
 		server.tool(
 			"parallel_search_ssrn",
-			"Run multiple SSRN searches in parallel for comprehensive social science research coverage and diverse academic angles. For best results, provide multiple search queries that explore different research angles and methodologies. You can use expand_query to help generate diverse queries, or create them yourself.",
+			"Run several SSRN searches at once. Give queries covering different research angles.",
 			{
 				searches: z.array(z.object({
-					query: z.string().describe("Academic search terms, author names, or research topics"),
+					query: z.string(),
 					num: z.number().int().min(1).max(100).default(30).describe("Maximum number of academic papers to return, between 1-100"),
-					tbs: z.string().optional().describe("Time-based search parameter, e.g., 'qdr:h' for past hour")
-				})).max(5).describe("Array of SSRN search configurations to execute in parallel (maximum 5 searches for optimal performance)"),
-				timeout: z.number().default(30000).describe("Timeout in milliseconds for all searches")
+					tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
+				})).max(5).describe("Array of SSRN search configurations to execute in parallel (maximum 5 searches for optimal performance)")
 			},
-			async ({ searches, timeout }: { searches: SearchSsrnArgs[]; timeout: number }) => {
+			async ({ searches }: { searches: SearchSsrnArgs[] }) => {
 				try {
 					const props = getProps();
 
@@ -869,7 +876,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					};
 
 					// Execute parallel searches using utility
-					const results = await executeParallelSearches(uniqueSearches, ssrnSearchFunction, { timeout });
+					const results = await executeParallelSearches(uniqueSearches, ssrnSearchFunction, { timeout: PARALLEL_TIMEOUT_MS });
 
 					return {
 						content: formatParallelSearchResultsToContentItems(results),
@@ -885,19 +892,18 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("parallel_read_url")) {
 		server.tool(
 			"parallel_read_url",
-			"Read multiple web pages in parallel to extract clean content efficiently. For best results, provide multiple URLs that you need to extract simultaneously. This is useful for comparing content across multiple sources or gathering information from multiple pages at once.",
+			"Read several URLs at once.",
 			{
 				urls: z.array(z.object({
-					url: z.string().url().describe("The complete URL of the webpage or PDF file to read and convert"),
+					url: z.string().url(),
 					withAllLinks: z.boolean().default(false).describe("Set to true to extract and return all hyperlinks found on the page as structured data"),
 					withAllImages: z.boolean().default(false).describe("Set to true to extract and return all images found on the page as structured data"),
-					question: z.string().optional().describe("Read this page with this question in mind and return only the top-ranked passages instead of the full body. Omit to return full content."),
-					chunk_size: z.number().int().min(1).max(4096).optional().describe("Target passage size when `question` is set (default 100), in words, comparable across scripts. Not a token count."),
-					topk: z.number().int().min(1).max(50).optional().describe("How many top-ranked passages to return when `question` is set (default 1)")
-				})).max(5).describe("Array of URL configurations to read in parallel (maximum 5 URLs for optimal performance)"),
-				timeout: z.number().default(30000).describe("Timeout in milliseconds for all URL reads. Question-grounded reads add a chunking and reranking pass after the fetch, so the effective floor is raised to 60000ms for those.")
+					question: z.string().optional().describe("Return only the passages answering this question, instead of the full body."),
+					chunk_size: z.number().int().min(1).max(4096).optional().describe("Passage size in words, default 100. Needs `question`."),
+					topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`.")
+				})).max(5).describe("URLs to read, up to 5.")
 			},
-			async ({ urls, timeout }: { urls: Array<{ url: string; withAllLinks: boolean; withAllImages: boolean; question?: string; chunk_size?: number; topk?: number }>; timeout: number }) => {
+			async ({ urls }: { urls: Array<{ url: string; withAllLinks: boolean; withAllImages: boolean; question?: string; chunk_size?: number; topk?: number }> }) => {
 				try {
 					const props = getProps();
 
@@ -908,12 +914,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					// Import the utility functions
 					const { executeParallelUrlReads } = await import("../utils/read.js");
 
-					// The default 30s budget predates question-grounded reads and would cut
-					// them off mid-rerank. Raise the floor only when a question is actually
-					// asked, and never lower an explicitly larger caller timeout.
+					// Question-grounded reads add a chunking and rerank pass after the
+					// fetch, which the plain budget predates and would cut off mid-rerank.
 					const effectiveTimeout = uniqueUrls.some(u => u.question)
-						? Math.max(timeout, 60000)
-						: timeout;
+						? QUESTION_READ_TIMEOUT_MS
+						: PARALLEL_TIMEOUT_MS;
 
 					// Execute parallel URL reads using the utility
 					const results = await executeParallelUrlReads(uniqueUrls, props.bearerToken, effectiveTimeout);
@@ -949,13 +954,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("classify_text")) {
 		server.tool(
 			"classify_text",
-			"Classify texts into user-defined labels using Jina embeddings. Use this when you need to categorize, tag, or sort text content into predefined categories. Perfect for sentiment analysis, topic classification, content moderation, or any text categorization task.",
+			"Classify texts into labels you supply, using Jina embeddings. Zero-shot: no training data needed.",
 			{
-				texts: z.array(z.string()).min(1).max(1024).describe("Array of text strings to classify, up to 1024 (e.g., ['I love this product', 'terrible experience'])"),
-				labels: z.array(z.string()).min(2).max(256).describe("Array of classification labels (e.g., ['positive', 'negative', 'neutral'])"),
-				model: z.string().default("jina-embeddings-v5-text-small").describe("Model to use for classification (default: jina-embeddings-v5-text-small)")
+				texts: z.array(z.string()).min(1).max(1024).describe("Texts to classify, up to 1024."),
+				labels: z.array(z.string()).min(2).max(256).describe("Labels to classify into, e.g. ['positive','negative'].")
 			},
-			async ({ texts, labels, model }: { texts: string[]; labels: string[]; model: string }) => {
+			async ({ texts, labels }: { texts: string[]; labels: string[] }) => {
 				try {
 					const props = getProps();
 
@@ -980,7 +984,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 							'Authorization': `Bearer ${props.bearerToken}`,
 						},
 						body: JSON.stringify({
-							model,
+							model: CLASSIFY_MODEL,
 							input: texts,
 							labels,
 						}),
@@ -1017,11 +1021,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("sort_by_relevance")) {
 		server.tool(
 			"sort_by_relevance",
-			"Rerank a list of documents by relevance to a query using Jina Reranker API. Use this when you have multiple documents and want to sort them by how well they match a specific query or topic. Perfect for document retrieval, content filtering, or finding the most relevant information from a collection.",
+			"Rerank documents by relevance to a query, using Jina Reranker.",
 			{
-				query: z.string().describe("The query or topic to rank documents against (e.g., 'machine learning algorithms', 'climate change solutions')"),
-				documents: z.array(z.string()).min(1).max(1024).describe("Array of document texts to rerank by relevance, up to 1024"),
-				top_n: z.number().int().min(1).optional().describe("Maximum number of top results to return")
+				query: z.string(),
+				documents: z.array(z.string()).min(1).max(1024).describe("Documents to rank, up to 1024."),
+				top_n: z.number().int().min(1).optional()
 			},
 			async ({ query, documents, top_n }: { query: string; documents: string[]; top_n?: number }) => {
 				try {
@@ -1083,10 +1087,10 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("deduplicate_strings")) {
 		server.tool(
 			"deduplicate_strings",
-			"Get top-k semantically unique strings from a list using Jina embeddings and submodular optimization. Use this when you have many similar strings and want to select the most diverse subset that covers the semantic space. Perfect for removing duplicates, selecting representative samples, or finding diverse content.",
+			"Select the top-k semantically distinct strings from a list, dropping near-duplicates.",
 			{
-				strings: z.array(z.string()).min(1).max(1000).describe("Array of strings to deduplicate, up to 1000"),
-				k: z.number().int().min(1).optional().describe("Number of unique strings to return. If not provided, automatically finds optimal k by looking at diminishing return")
+				strings: z.array(z.string()).min(1).max(1000).describe("Strings to deduplicate, up to 1000."),
+				k: z.number().int().min(1).optional().describe("How many to keep. Omit to pick k automatically from diminishing returns.")
 			},
 			async ({ strings, k }: { strings: string[]; k?: number }) => {
 				try {
@@ -1173,10 +1177,10 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("deduplicate_images")) {
 		server.tool(
 			"deduplicate_images",
-			"Get top-k semantically unique images (URLs or base64-encoded) using Jina CLIP v2 embeddings and submodular optimization. Use this when you have many visually similar images and want the most diverse subset.",
+			"Select the top-k visually distinct images (URLs or base64) from a list, dropping near-duplicates.",
 			{
-				images: z.array(z.string()).min(1).max(200).describe("Array of image inputs to deduplicate, up to 200. Each item can be either an HTTP(S) URL or a raw base64-encoded image string (without data URI prefix)."),
-				k: z.number().int().min(1).optional().describe("Number of unique images to return. If not provided, automatically finds optimal k by looking at diminishing return"),
+				images: z.array(z.string()).min(1).max(200).describe("Images to deduplicate, up to 200. Each is an http(s) URL or raw base64."),
+				k: z.number().int().min(1).optional().describe("How many to keep. Omit to pick k automatically from diminishing returns."),
 			},
 			async ({ images, k }: { images: string[]; k?: number }) => {
 				try {
@@ -1297,12 +1301,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("search_bibtex")) {
 		server.tool(
 			"search_bibtex",
-			"Search for academic papers and return BibTeX citations. Searches DBLP (computer science) and Semantic Scholar (broad academic coverage) for comprehensive results. Returns formatted BibTeX entries ready to use in LaTeX documents.",
+			"Find papers and return ready-to-use BibTeX entries. Searches DBLP and Semantic Scholar.",
 			{
-				query: z.string().describe("Search query - paper title, topic, or keywords (e.g., 'attention is all you need', 'transformer neural networks', 'deep learning optimization')"),
-				num: z.number().min(1).max(50).default(10).describe("Maximum number of results to return (1-50, default: 10)"),
-				year: z.number().optional().describe("Filter by minimum publication year (e.g., 2020 for papers from 2020 onwards)"),
-				author: z.string().optional().describe("Filter by author name (e.g., 'Vaswani', 'Hinton')")
+				query: z.string(),
+				num: z.number().min(1).max(50).default(10),
+				year: z.number().optional().describe("Earliest publication year."),
+				author: z.string().optional().describe("Author surname.")
 			},
 			async ({ query, num, year, author }: { query: string; num: number; year?: number; author?: string }) => {
 				try {
@@ -1356,12 +1360,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	if (isToolEnabled("extract_pdf")) {
 		server.tool(
 			"extract_pdf",
-			"Extract figures, tables, and equations from PDF documents using layout detection. Perfect for extracting visual elements from academic papers on arXiv or any PDF URL. Returns base64-encoded images of detected elements with metadata.",
+			"Extract figures, tables and equations from a PDF as images, by arXiv id or URL.",
 			{
-				id: z.string().optional().describe("arXiv paper ID (e.g., '2301.12345' or 'hep-th/9901001'). Either id or url is required."),
-				url: z.string().url().optional().describe("Direct PDF URL. Either id or url is required."),
-				max_edge: z.number().default(1024).describe("Maximum edge size for extracted images in pixels (default: 1024)"),
-				type: z.string().optional().describe("Filter by float types (comma-separated): figure, table, equation. If not specified, returns all types.")
+				id: z.string().optional().describe("arXiv id, e.g. '2301.12345'. Give id or url."),
+				url: z.string().url().optional().describe("PDF URL. Give id or url."),
+				max_edge: z.number().default(1024).describe("Longest image edge in pixels, default 1024."),
+				type: z.string().optional().describe("Comma-separated types to keep: figure, table, equation. Default all.")
 			},
 			async ({ id, url, max_edge, type }: { id?: string; url?: string; max_edge: number; type?: string }) => {
 				try {
