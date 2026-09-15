@@ -304,6 +304,25 @@ Three things worth knowing before tuning:
 - **Code blocks and tables are stripped before ranking.** The chunker removes them along with nav furniture, which is what stops boilerplate from winning on lexical overlap. The trade-off is that install commands and spec tables are not eligible passages, so *"how do I install X"* is a weak fit for this parameter.
 - **Latency is roughly double a plain read**, since the passage extraction runs alongside the fetch and adds a rerank call. `parallel_read_url` raises its own timeout floor to 60s when any entry has a `question`.
 
+### Reading a scanned document or a PDF
+
+A plain read parses the page's HTML. That returns nothing useful when the text is not in the markup — a scanned page, an image-only PDF — and it tends to flatten formulas and table structure even when it does work. Pass `ocr` and the rendered page goes through [jina-ocr-v1](https://jina.ai/models/jina-ocr-v1) as an image instead, which returns Markdown with the formulas and tables intact.
+
+```jsonc
+{ "url": "https://arxiv.org/pdf/2609.03181", "ocr": true }            // page 1
+{ "url": "https://arxiv.org/pdf/2609.03181", "ocr": true, "page": 2 } // page 2
+```
+
+**It parses one page per call.** Page 1 unless `page` says otherwise, so a long document needs one call per page rather than one call for the document. Measured against arXiv 2609.03181, a 20-page paper:
+
+| | bytes returned | tokens billed |
+|---|---|---|
+| plain read | 49,466 (whole PDF) | 13,864 |
+| `ocr: true` | 2,963 (page 1) | 61,520 |
+| `ocr: true, page: 2` | 2,749 (page 2) | 62,720 |
+
+So it is off by default, and worth turning on only when the HTML path has failed you or the layout is the point. `parallel_read_url` takes both flags per entry, which is also the cheapest way to OCR several pages of one document: repeat the same url with different `page` values.
+
 ### What is the difference between `search_web` and `search_web_deep`?
 
 `search_web` returns the snippet the search engine picked — around 20 words, often a keyword-bearing fragment that never answers the question. `search_web_deep` also reads each page via [Reader](https://jina.ai/reader), splits it into ~100-word passages at sentence boundaries, and scores every passage from every page in one listwise [Reranker](https://jina.ai/reranker) call, so any page's passage can outrank any other's. `snippet_source=auto` (the default) enters each page's engine snippet as one more candidate and the `snippet_source` field on each result says which won; `content` never enters it and omits pages it could not read, so it may return fewer than `num`.

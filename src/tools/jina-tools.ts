@@ -236,9 +236,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 				withAllImages: z.boolean().optional().describe("Also return every image on the page."),
 				question: z.string().optional().describe("Return only the passages answering this question, instead of the full body. Omit for the whole page."),
 				chunk_size: z.number().int().min(1).max(4096).optional().describe("Passage size in words, default 100. Larger gives more surrounding context, smaller pinpoints the answer. Comparable across scripts. Needs `question`."),
-				topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`.")
+				topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`."),
+				ocr: z.boolean().optional().describe("Read the rendered page as an image with jina-ocr-v1 instead of its HTML. Use for scanned documents and PDFs whose text is not in the markup, and to keep formulas and table structure. Parses ONE page per call, page 1 unless `page` says otherwise, and costs about 40x the tokens per page, so leave off unless the HTML path has failed you."),
+				page: z.number().int().min(1).optional().describe("Which page the OCR pass should parse, 1-based. Needs `ocr`; the HTML path returns the whole document at once.")
 			},
-			async ({ url, withAllLinks, withAllImages, question, chunk_size, topk }: { url: string | string[]; withAllLinks?: boolean; withAllImages?: boolean; question?: string; chunk_size?: number; topk?: number }) => {
+			async ({ url, withAllLinks, withAllImages, question, chunk_size, topk, ocr, page }: { url: string | string[]; withAllLinks?: boolean; withAllImages?: boolean; question?: string; chunk_size?: number; topk?: number; ocr?: boolean; page?: number }) => {
 				try {
 					const props = getProps();
 
@@ -254,7 +256,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						const { readUrlFromConfig } = await import("../utils/read.js");
 
 						// Use the shared utility function
-						const result = await readUrlFromConfig({ url: singleUrl, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk }, props.bearerToken);
+						const result = await readUrlFromConfig({ url: singleUrl, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk, ocr, page }, props.bearerToken);
 
 						if ('error' in result) {
 							return createErrorResponse(result.error);
@@ -270,7 +272,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 
 					// Handle multiple URLs with parallel reading
 					if (Array.isArray(url) && url.length > 1) {
-						const urls = url.map(u => ({ url: u, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk }));
+						const urls = url.map(u => ({ url: u, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk, ocr, page }));
 
 						const uniqueUrls = urls.filter((urlConfig, index, self) =>
 							index === self.findIndex(u => u.url === urlConfig.url)
@@ -900,10 +902,12 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					withAllImages: z.boolean().default(false).describe("Also return every image on the page."),
 					question: z.string().optional().describe("Return only the passages answering this question, instead of the full body."),
 					chunk_size: z.number().int().min(1).max(4096).optional().describe("Passage size in words, default 100. Needs `question`."),
-					topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`.")
-				})).max(5).describe("URLs to read, up to 5.")
+					topk: z.number().int().min(1).max(50).optional().describe("Passages to return, default 1. Needs `question`."),
+					ocr: z.boolean().optional().describe("Read the rendered page as an image with jina-ocr-v1 instead of its HTML. Use for scanned documents and PDFs. Parses one page per entry and costs about 40x the tokens per page."),
+					page: z.number().int().min(1).optional().describe("Which page the OCR pass should parse, 1-based. Needs `ocr`.")
+				})).max(5).describe("URLs to read, up to 5. To OCR several pages of one document, repeat the same url with different `page` values.")
 			},
-			async ({ urls }: { urls: Array<{ url: string; withAllLinks: boolean; withAllImages: boolean; question?: string; chunk_size?: number; topk?: number }> }) => {
+			async ({ urls }: { urls: Array<{ url: string; withAllLinks: boolean; withAllImages: boolean; question?: string; chunk_size?: number; topk?: number; ocr?: boolean; page?: number }> }) => {
 				try {
 					const props = getProps();
 

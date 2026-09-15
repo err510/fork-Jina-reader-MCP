@@ -19,6 +19,25 @@ export interface ReadUrlConfig {
     withAllLinks?: boolean;
     withAllImages?: boolean;
     /**
+     * Read the rendered page as an image with jina-ocr-v1 instead of parsing
+     * its HTML. That is the only way to get at a scanned document or a PDF
+     * whose text is not in the markup, and it keeps formulas and table
+     * structure. It costs 40x the tokens of an ordinary read, so it stays off
+     * unless asked for.
+     *
+     * It parses ONE page per call, the first unless `page` says otherwise.
+     * Measured on arXiv 2609.03181: the HTML path returns the whole PDF in
+     * 13,864 tokens, the OCR path returns page 1 for 61,520. Cost is per
+     * page, and a long document needs one call per page.
+     */
+    ocr?: boolean;
+    /**
+     * Which page the OCR pass should parse, 1-based. Ignored without `ocr`,
+     * since the HTML path returns the whole document at once and has nothing
+     * to page through.
+     */
+    page?: number;
+    /**
      * When set, the page is reduced to the passage(s) that best answer this
      * question, by the same read -> chunk -> rerank pipeline that backs
      * search_web_deep. Absent (the default), the full content is returned
@@ -148,6 +167,16 @@ export async function readUrlFromConfig(
             headers['X-With-Images-Summary'] = 'true';
         } else {
             headers['X-Retain-Images'] = 'none';
+        }
+
+        if (urlConfig.ocr) {
+            headers['X-Respond-With'] = 'jina-ocr-v1';
+
+            // Only the OCR path works a page at a time, so page selection is
+            // scoped to it rather than sent on every read.
+            if (urlConfig.page && urlConfig.page > 1) {
+                headers['X-Page'] = String(urlConfig.page);
+            }
         }
 
         // svip is only involved when there is BOTH a url and a question. Without
