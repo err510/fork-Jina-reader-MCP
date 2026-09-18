@@ -1,35 +1,11 @@
 # Jina AI Remote MCP Server
 
-[CLI version](https://github.com/jina-ai/cli)
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=jina-mcp-server&config=eyJ1cmwiOiJodHRwczovL21jcC5qaW5hLmFpL3YxIiwiaGVhZGVycyI6eyJBdXRob3JpemF0aW9uIjoiQmVhcmVyIGppbmFfWU9VUl9BUElfS0VZX0hFUkUifX0%3D)
-[![Add MCP Server jina-mcp-server to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](https://lmstudio.ai/install-mcp?name=jina-mcp-server&config=eyJ1cmwiOiJodHRwczovL21jcC5qaW5hLmFpL3YxIiwiaGVhZGVycyI6eyJBdXRob3JpemF0aW9uIjoiQmVhcmVyIGppbmFfWU9VUl9BUElfS0VZX0hFUkUifX0%3D)
-
 A remote Model Context Protocol (MCP) server for the Jina Reader, Search, Embeddings and Reranker APIs:
-
-| Tool | Description | Is Jina API Key Required? |
-|-----------|-------------|----------------------|
-| `primer` | Get current contextual information for localized, time-aware responses | No |
-| `read_url` | Read a web page or PDF as markdown. Pass `question` for passages instead of the full body via [Reader API](https://jina.ai/reader) | Optional* |
-| `capture_screenshot_url` | Capture a screenshot of a web page via [Reader API](https://jina.ai/reader) | Optional* |
-| `guess_datetime_url` | Guess a page's publish or last-update datetime, with a confidence score | No |
-| `search_web` | Search the web. Returns titles, URLs and engine snippets via [Reader API](https://jina.ai/reader) | Yes |
-| `search_arxiv` | Search academic papers and preprints on arXiv repository via [Reader API](https://jina.ai/reader) | Yes |
-| `search_ssrn` | Search academic papers on SSRN (Social Science Research Network) via [Reader API](https://jina.ai/reader) | Yes |
-| `search_images` | Search the web for images via [Reader API](https://jina.ai/reader) | Yes |
-| `search_jina_blog` | Search Jina AI news and blog posts at [jina.ai/news](https://jina.ai/news) | No |
-| `sort_by_relevance` | Rerank documents by relevance to a query via [Reranker API](https://jina.ai/reranker) | Yes |
-| `deduplicate_strings` | Get top-k semantically unique strings via [Embeddings API](https://jina.ai/embeddings) and [submodular optimization](https://jina.ai/news/submodular-optimization-for-diverse-query-generation-in-deepresearch) | Yes |
-| `extract_pdf` | Extract figures, tables, and equations from PDF documents (arXiv papers or any PDF URL) using layout detection | Yes |
-
-> Optional tools work without an API key at [rate limits](https://jina.ai/api-dashboard/rate-limit). Use a key for higher limits. Free keys: [https://jina.ai](https://jina.ai)
 
 ## Usage
 
 > [!WARNING]
 > Some clients do not support env variable, so you may need to replace `${JINA_API_KEY}` below to a hardcoded real API key `jina_xxx`.
-
-> [!NOTE]
-> The server uses [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) transport (MCP spec 2025-03-26). The `/sse` endpoint is kept as an alias for backward compatibility. See [FAQ](#why-is-the-endpoint-called-sse-but-using-streamable-http) for details.
 
 For client that supports remote MCP server:
 ```json
@@ -43,6 +19,27 @@ For client that supports remote MCP server:
     }
   }
 }
+```
+
+
+For Claude Code:
+
+```bash
+claude mcp add -s user --transport http jina https://mcp.jina.ai/v1 \
+  --header "Authorization: Bearer ${JINA_API_KEY}"
+```
+
+For OpenAI Codex: find `~/.codex/config.toml` and add the following:
+
+```toml
+[mcp_servers.jina-mcp-server]
+command = "npx"
+args = [
+    "-y",
+    "mcp-remote",
+    "https://mcp.jina.ai/v1",
+    "--header",
+    "Authorization: Bearer ${JINA_API_KEY}"]
 ```
 
 For client that does not support remote MCP server yet, you need [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) a local proxy to connect to the remote MCP server.
@@ -62,28 +59,25 @@ For client that does not support remote MCP server yet, you need [`mcp-remote`](
   }
 }
 ```
+## Available tools
 
-For Claude Code:
+| Tool | Description | Is Jina API Key Required? |
+|-----------|-------------|----------------------|
+| `primer` | Get current contextual information for localized, time-aware responses | No |
+| `read_url` | Read a web page or PDF as markdown. Pass `question` for passages instead of the full body via [Reader API](https://jina.ai/reader) | Optional* |
+| `capture_screenshot_url` | Capture a screenshot of a web page via [Reader API](https://jina.ai/reader) | Optional* |
+| `guess_datetime_url` | Guess a page's publish or last-update datetime, with a confidence score | No |
+| `search_web` | Search the web. Returns titles, URLs and engine snippets via [Reader API](https://jina.ai/reader) | Yes |
+| `search_arxiv` | Search academic papers and preprints on arXiv repository via [Reader API](https://jina.ai/reader) | Yes |
+| `search_ssrn` | Search academic papers on SSRN (Social Science Research Network) via [Reader API](https://jina.ai/reader) | Yes |
+| `search_images` | Search the web for images via [Reader API](https://jina.ai/reader) | Yes |
+| `search_jina_blog` | Search Jina AI news and blog posts at [jina.ai/news](https://jina.ai/news) | No |
+| `sort_by_relevance` | Rerank documents by relevance to a query via [Reranker API](https://jina.ai/reranker) | Yes |
+| `deduplicate_strings` | Get top-k semantically unique strings via [Embeddings API](https://jina.ai/embeddings) and [submodular optimization](https://jina.ai/news/submodular-optimization-for-diverse-query-generation-in-deepresearch) | Yes |
+| `extract_pdf` | Extract figures, tables, and equations from PDF documents (arXiv papers or any PDF URL) using layout detection | Yes |
 
-> [!WARNING]
-> **Upgrading from `/sse`?** If you previously added with `--transport sse`, remove it first with `claude mcp remove -s user jina`, then re-add using the command below.
+> Optional tools work without an API key at [rate limits](https://jina.ai/api-dashboard/rate-limit). Use a key for higher limits. Free keys: [https://jina.ai](https://jina.ai)
 
-```bash
-claude mcp add -s user --transport http jina https://mcp.jina.ai/v1 \
-  --header "Authorization: Bearer ${JINA_API_KEY}"
-```
-
-For OpenAI Codex: find `~/.codex/config.toml` and add the following:
-```toml
-[mcp_servers.jina-mcp-server]
-command = "npx"
-args = [
-    "-y",
-    "mcp-remote",
-    "https://mcp.jina.ai/v1",
-    "--header",
-    "Authorization: Bearer ${JINA_API_KEY}"]
-```
 
 ## Tool Filtering before Registering
 
@@ -162,19 +156,6 @@ Exclude specific tools:
 }
 ```
 
-## Removed in v1.10.0
-
-| Tool | Use instead |
-|---|---|
-| `search_web_deep` | `search_web`, then `read_url` with `question` on the pages you pick |
-| `parallel_search_web`, `parallel_search_arxiv`, `parallel_search_ssrn`, `parallel_read_url` | pass an array to `query` / `url` on the singletons |
-| `expand_query` | rewrite the query yourself; the endpoint returned one near-copy of the input |
-| `classify_text` | classify with the model; label scores differed by ~0.006, which is noise |
-| `deduplicate_images` | the response carried base64 JPEG data, not just the selected items |
-| `search_bibtex` | read the citation from the publisher or DBLP page directly; both backends were failing live |
-| `show_api_key` | nothing. It returned the bearer token into the conversation |
-
-Clients or `.mdc` rules naming these tools will get an unknown-tool error.
 
 ## Troubleshooting
 
@@ -351,27 +332,23 @@ A plain read parses HTML. It returns nothing useful when the text is not in the 
 | `ocr: true` | 2,963 (page 1) | 61,520 |
 | `ocr: true, page: 2` | 2,749 (page 2) | 62,720 |
 
-Re-measured on a local `wrangler dev`: 49,745 / 2,968 / 2,923 bytes. Within 1 percent of the published figures.
-
 Off by default, because OCR bills more tokens per page than a plain read costs per document. Turn it on when the HTML path fails or the layout matters. `page` is shared across a URL array, so several pages of one document take one call each.
 
-### What is the difference between `search_web` and `search_web_deep`?
 
-Removed in v1.10.0. Use `search_web`, then `read_url` on the pages you picked:
+### Functions have been removed in v1.10.0
 
-```jsonc
-// 1. find pages
-{ "query": "how to undo the last commit in git", "num": 5 }            // search_web
+The following tools has been proved not effective or simply broken.
 
-// 2. read the ones you want, reduced to answering passages
-{ "url": ["https://stackoverflow.com/questions/9257533/...",
-          "https://git-scm.com/docs/git-reset"],                      // read_url
-  "question": "how to undo the last commit without losing work" }
-```
+| Tool | Use instead |
+|---|---|
+| `search_web_deep` | `search_web`, then `read_url` with `question` on the pages you pick |
+| `parallel_search_web`, `parallel_search_arxiv`, `parallel_search_ssrn`, `parallel_read_url` | pass an array to `query` / `url` on the singletons |
+| `expand_query` | rewrite the query yourself; the endpoint returned one near-copy of the input |
+| `classify_text` | classify with the model; label scores differed by ~0.006, which is noise |
+| `deduplicate_images` | the response carried base64 JPEG data, not just the selected items |
+| `search_bibtex` | read the citation from the publisher or DBLP page directly; both backends were failing live |
+| `show_api_key` | nothing. It returned the bearer token into the conversation |
 
-Two calls instead of one, and the caller picks the pages. That is the reason for the removal: `search_web_deep` picked them, and picked wrong. Measured on `latest stable vite version`, where the npm result carries `Latest version: 8.3.0` — `search_web` returned that result in 2 of 5 on both runs; the deep path returned it 1 of 5 and then 0 of 5 with `v4.vite.dev/releases` ranked first, and `snippet_source=content` dropped the npm page outright. Three identical calls returned three different result sets. Output ran 3-4x the bytes of `search_web` per result (348-682 against 138-191). Its `rerank_score` ranked relevance, not correctness: at `num=2` the npm result carrying `8.3.0` scored 0.1303, below a page stating no version at 0.4765.
-
-The pipeline is still available: `read_url` with `question` runs the same chunk-and-rerank on a page you chose. Its limits are listed in [Reading a page with a question in mind](#reading-a-page-with-a-question-in-mind).
 
 ## Developer Guide
 
