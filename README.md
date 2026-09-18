@@ -4,33 +4,24 @@
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=jina-mcp-server&config=eyJ1cmwiOiJodHRwczovL21jcC5qaW5hLmFpL3YxIiwiaGVhZGVycyI6eyJBdXRob3JpemF0aW9uIjoiQmVhcmVyIGppbmFfWU9VUl9BUElfS0VZX0hFUkUifX0%3D)
 [![Add MCP Server jina-mcp-server to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](https://lmstudio.ai/install-mcp?name=jina-mcp-server&config=eyJ1cmwiOiJodHRwczovL21jcC5qaW5hLmFpL3YxIiwiaGVhZGVycyI6eyJBdXRob3JpemF0aW9uIjoiQmVhcmVyIGppbmFfWU9VUl9BUElfS0VZX0hFUkUifX0%3D)
 
-A remote Model Context Protocol (MCP) server that provides access to Jina Reader, Embeddings and Reranker APIs with a suite of URL-to-markdown, web search, image search, and embeddings/reranker tools:
+A remote Model Context Protocol (MCP) server for the Jina Reader, Search, Embeddings and Reranker APIs:
 
 | Tool | Description | Is Jina API Key Required? |
 |-----------|-------------|----------------------|
 | `primer` | Get current contextual information for localized, time-aware responses | No |
-| `read_url` | Extract clean, structured content from web pages as markdown via [Reader API](https://jina.ai/reader) | Optional* |
-| `capture_screenshot_url` | Capture high-quality screenshots of web pages via [Reader API](https://jina.ai/reader) | Optional* |
-| `guess_datetime_url` | Analyze web pages for last update/publish datetime with confidence scores | No |
-| `search_web` | Search the entire web for current information and news via [Reader API](https://jina.ai/reader) | Yes |
-| `search_web_deep` | Search the web, read each result page via [Reader API](https://jina.ai/reader), then score every passage against the query in one listwise [Reranker API](https://jina.ai/reranker) call (`jina-reranker-v3.5`) to return the best paragraph-length passage from each page (typically 2-20s) | Yes |
+| `read_url` | Read a web page or PDF as markdown. Pass `question` for passages instead of the full body via [Reader API](https://jina.ai/reader) | Optional* |
+| `capture_screenshot_url` | Capture a screenshot of a web page via [Reader API](https://jina.ai/reader) | Optional* |
+| `guess_datetime_url` | Guess a page's publish or last-update datetime, with a confidence score | No |
+| `search_web` | Search the web. Returns titles, URLs and engine snippets via [Reader API](https://jina.ai/reader) | Yes |
 | `search_arxiv` | Search academic papers and preprints on arXiv repository via [Reader API](https://jina.ai/reader) | Yes |
 | `search_ssrn` | Search academic papers on SSRN (Social Science Research Network) via [Reader API](https://jina.ai/reader) | Yes |
-| `search_images` | Search for images across the web (similar to Google Images) via [Reader API](https://jina.ai/reader) | Yes |
+| `search_images` | Search the web for images via [Reader API](https://jina.ai/reader) | Yes |
 | `search_jina_blog` | Search Jina AI news and blog posts at [jina.ai/news](https://jina.ai/news) | No |
-| `search_bibtex` | Search for academic papers and return BibTeX citations (DBLP + Semantic Scholar) | No |
-| `expand_query` | Expand and rewrite search queries based on the query expansion model via [Reader API](https://jina.ai/reader) | Yes |
-| `parallel_read_url` | Read multiple web pages in parallel for efficient content extraction via [Reader API](https://jina.ai/reader) | Optional* |
-| `parallel_search_web` | Run multiple web searches in parallel for comprehensive topic coverage and diverse perspectives via [Reader API](https://jina.ai/reader) | Yes |
-| `parallel_search_arxiv` | Run multiple arXiv searches in parallel for comprehensive research coverage and diverse academic angles via [Reader API](https://jina.ai/reader) | Yes |
-| `parallel_search_ssrn` | Run multiple SSRN searches in parallel for comprehensive social science research coverage via [Reader API](https://jina.ai/reader) | Yes |
 | `sort_by_relevance` | Rerank documents by relevance to a query via [Reranker API](https://jina.ai/reranker) | Yes |
-| `classify_text` | Classify texts into user-defined labels via [Embeddings API](https://jina.ai/embeddings) | Yes |
 | `deduplicate_strings` | Get top-k semantically unique strings via [Embeddings API](https://jina.ai/embeddings) and [submodular optimization](https://jina.ai/news/submodular-optimization-for-diverse-query-generation-in-deepresearch) | Yes |
-| `deduplicate_images` | Get top-k semantically unique images via [Embeddings API](https://jina.ai/embeddings) and [submodular optimization](https://jina.ai/news/submodular-optimization-for-diverse-query-generation-in-deepresearch) | Yes |
 | `extract_pdf` | Extract figures, tables, and equations from PDF documents (arXiv papers or any PDF URL) using layout detection | Yes |
 
-> Optional tools work without an API key but have [rate limits](https://jina.ai/api-dashboard/rate-limit). For higher rate limits and better performance, use a Jina API key. You can get a free Jina API key from [https://jina.ai](https://jina.ai)
+> Optional tools work without an API key at [rate limits](https://jina.ai/api-dashboard/rate-limit). Use a key for higher limits. Free keys: [https://jina.ai](https://jina.ai)
 
 ## Usage
 
@@ -96,9 +87,9 @@ args = [
 
 ## Tool Filtering before Registering
 
-Every MCP tool requires the LLM to pre-allocate tokens in its context window for the tool's name, description, and schema. For LLMs with limited context windows, registering all 22 tools can consume significant space before any actual work begins.
+Registering a tool costs context tokens for its name, description and schema whether or not it is called. With 12 tools, that budget is spent before the first request.
 
-By filtering tools server-side via query parameters on the endpoint URL (`/v1?...`), excluded tools are never registered with the MCP client. The client and LLM never see them, saving context window for what matters.
+Filtering server-side through query parameters on the endpoint URL (`/v1?...`) excludes tools before registration, so the client never sees them.
 
 ### Query Parameters
 
@@ -106,19 +97,18 @@ By filtering tools server-side via query parameters on the endpoint URL (`/v1?..
 |-----------|-------------|---------|
 | `exclude_tools` | Comma-separated tool names to exclude | `exclude_tools=search_web,search_arxiv` |
 | `include_tools` | Comma-separated tool names to include | `include_tools=read_url,search_web` |
-| `exclude_tags` | Comma-separated tags to exclude | `exclude_tags=parallel,rerank` |
+| `exclude_tags` | Comma-separated tags to exclude | `exclude_tags=search,rerank` |
 | `include_tags` | Comma-separated tags to include | `include_tags=search,read` |
-| `max_tokens` | Cap `read_url`/`parallel_read_url` response size in tokens. `0` disables truncation | `max_tokens=50000` |
+| `max_tokens` | Cap `read_url` response size in tokens. `0` disables truncation | `max_tokens=50000` |
 
 ### Available Tags
 
 | Tag | Tools |
 |-----|-------|
-| `search` | search_web, search_web_deep, search_arxiv, search_ssrn, search_images, search_jina_blog, search_bibtex |
-| `parallel` | parallel_search_web, parallel_search_arxiv, parallel_search_ssrn, parallel_read_url |
-| `read` | read_url, parallel_read_url, capture_screenshot_url |
-| `utility` | primer, show_api_key, expand_query, guess_datetime_url, extract_pdf |
-| `rerank` | sort_by_relevance, classify_text, deduplicate_strings, deduplicate_images |
+| `search` | search_web, search_arxiv, search_ssrn, search_images, search_jina_blog |
+| `read` | read_url, capture_screenshot_url |
+| `utility` | primer, guess_datetime_url, extract_pdf |
+| `rerank` | sort_by_relevance, deduplicate_strings |
 
 ### Precedence
 
@@ -130,12 +120,12 @@ Filters are applied in this order (highest to lowest priority):
 
 ### Examples
 
-Exclude parallel tools (saves ~4 tools worth of context tokens):
+Exclude the rerank and utility tags:
 ```json
 {
   "mcpServers": {
     "jina-mcp-server": {
-      "url": "https://mcp.jina.ai/v1?exclude_tags=parallel",
+      "url": "https://mcp.jina.ai/v1?exclude_tags=rerank,utility",
       "headers": {
         "Authorization": "Bearer ${JINA_API_KEY}"
       }
@@ -163,7 +153,7 @@ Exclude specific tools:
 {
   "mcpServers": {
     "jina-mcp-server": {
-      "url": "https://mcp.jina.ai/v1?exclude_tools=search_images,deduplicate_images",
+      "url": "https://mcp.jina.ai/v1?exclude_tools=search_ssrn,search_images",
       "headers": {
         "Authorization": "Bearer ${JINA_API_KEY}"
       }
@@ -172,19 +162,33 @@ Exclude specific tools:
 }
 ```
 
+## Removed in v1.10.0
+
+| Tool | Use instead |
+|---|---|
+| `search_web_deep` | `search_web`, then `read_url` with `question` on the pages you pick |
+| `parallel_search_web`, `parallel_search_arxiv`, `parallel_search_ssrn`, `parallel_read_url` | pass an array to `query` / `url` on the singletons |
+| `expand_query` | rewrite the query yourself; the endpoint returned one near-copy of the input |
+| `classify_text` | classify with the model; label scores differed by ~0.006, which is noise |
+| `deduplicate_images` | the response carried base64 JPEG data, not just the selected items |
+| `search_bibtex` | read the citation from the publisher or DBLP page directly; both backends were failing live |
+| `show_api_key` | nothing. It returned the bearer token into the conversation |
+
+Clients or `.mdc` rules naming these tools will get an unknown-tool error.
+
 ## Troubleshooting
 
 ### I got stuck in a tool calling loop - what happened?
 
-This is a common issue with LMStudio when the default context window is 4096 and you're using a thinking model like `gpt-oss-120b` or `qwen3-4b-thinking`. As the thinking and tool calling continue, once you hit the context window limit, the AI starts losing track of the beginning of the task. That's how it gets trapped in this rolling context window.
+This is a common issue with LMStudio when the default context window is 4096 and you're using a thinking model like `gpt-oss-120b` or `qwen3-4b-thinking`. As thinking and tool calling continue, the run hits the context limit, the model loses the start of the task, and it loops.
 
-The solution is to load the model with enough context length to contain the full tool calling chain and thought process.
+Load the model with enough context length to hold the whole tool-calling chain.
 
 ![set long enough context](/.readme/image.png)
 
 ### I can't see all tools.
 
-Some MCP clients have local caching and do not actively update tool definitions. If you're not seeing all the available tools or if tools seem outdated, you may need to remove and re-add the jina-mcp-server to your MCP client configuration. This will force the client to refresh its cached tool definitions. In LMStudio, you can click the refresh button to load new tools.
+Some MCP clients have local caching and do not actively update tool definitions. If tools are missing or look outdated, remove and re-add the jina-mcp-server to force a refresh of the cached definitions. In LMStudio, you can click the refresh button to load new tools.
 
 ![update local mcp clients](/.readme/image2.png)
 
@@ -209,41 +213,49 @@ Cursor and Claude Desktop (Windows) [have a bug](https://www.npmjs.com/package/m
 
 ### Cursor shows a red dot on this MCP status
 
-[Likely a UI bug from Cursor](https://forum.cursor.com/t/why-is-my-mcp-red/100518), but the MCP works correctly without any problem. You can toggle off/on to "restart" the MCP if you find the red dot annoying (fact is, since you are using this as a remote MCP, it's not a real "server restart" but mostly a local proxy restart).
+[Likely a Cursor UI bug](https://forum.cursor.com/t/why-is-my-mcp-red/100518). The MCP works. Toggling off/on clears the dot; on a remote MCP that restarts the local proxy, not a server.
 
 ![cursor shows red dot](/.readme/image3.jpg)
 
 ### My LLM never uses some tools
 
-Assuming all tools are enabled in your MCP client but LLM still never uses some tools or favors some over others, this is pretty common when an LLM is trained with a specific set of tools. For example, we rarely see `parallel_*` tools being used organically by LLMs unless they are explicitly instructed to do so. [Some research says LLMs must be trained to use `parallel_*`](https://arxiv.org/abs/2508.09303). Models like Qwen3-Next natively prefer to call the singleton version but with multiple queries in an array to achieve parallelism (which our MCP also support now). Either way, in Cursor, you can add the following rule to your `.mdc` file:
+If all tools are enabled but the model still ignores some, that is expected: models call the tools they were trained on. [Some research says LLMs must be trained to use a tool family](https://arxiv.org/abs/2508.09303). In Cursor, add this rule to a `.mdc` file:
 
 ```text
 ---
 alwaysApply: true
 ---
 
-When you are uncertain about knowledge, or the user doubts your answer, always use Jina MCP tools to search and read best practices and latest information. Use search_arxiv and read_url together when questions relate to theoretical deep learning or algorithm details. Use search_ssrn for social sciences, economics, law, and finance research. search_web, search_arxiv, and search_ssrn cannot be used alone - always combine with read_url or parallel_read_url to read from multiple sources. Remember: every search must be complemented with read_url to read the source URL content. For maximum efficiency, use parallel_* versions of search and read when necessary.
+When you are uncertain about knowledge, or the user doubts your answer, always use Jina MCP tools to search and read best practices and latest information. Use search_arxiv and read_url together when questions relate to theoretical deep learning or algorithm details. Use search_ssrn for social sciences, economics, law, and finance research. search_web, search_arxiv, and search_ssrn cannot be used alone - always follow with read_url on the result URLs. One read_url call can take up to 5 URLs at once.
 ```
 
 ### Why is my content truncated?
 
-Claude Code, Claude Desktop, and Cursor enforce a fixed 25k token limit on MCP tool responses. To stop these clients from rejecting a large response outright, this server applies a token guardrail to `read_url` and `parallel_read_url`.
+Claude Code, Claude Desktop, and Cursor enforce a fixed 25k token limit on MCP tool responses. To stop these clients from rejecting a large response outright, this server applies a token guardrail to `read_url`.
 
-Items are kept whole in their original order while they fit. The first item that does not fit is cut to a prefix that does, and anything after it is dropped. A short `[jina-mcp] ...` note is appended saying what was truncated or omitted, so the model knows it is looking at a partial document rather than a complete one. At least one item always survives, even if that item alone is over budget.
+Items are kept whole, in order, while they fit. The first that does not fit is cut to a prefix that does, and later items are dropped. A `[jina-mcp] ...` note records what was truncated or omitted, so a partial document is marked partial. At least one item always survives, even one over budget.
 
-The server deliberately aims under the limit rather than exactly at it. It has to: the server counts tokens with cl100k while the client counts with its own tokenizer, the cut is a proportional character estimate, and the client measures the serialized JSON payload rather than the raw text. On top of the token budget the server therefore enforces a hard ceiling of 3 bytes per allowed token, which holds regardless of tokenizer for both ASCII prose (~3.6 bytes/token) and CJK (~3 bytes/token). A rejected response delivers nothing, so erring low is the cheaper mistake.
+The server targets below the limit. It counts tokens with cl100k, the client with its own tokenizer, the cut is a proportional character estimate, and the client measures the serialized JSON payload instead of the raw text. It therefore also enforces a ceiling of 3 bytes per allowed token, which holds across tokenizers for ASCII prose (~3.6 bytes/token) and CJK (~3 bytes/token). Cutting short loses part of the content. A rejected response loses all of it.
 
 Any client can set its own budget with `max_tokens` on the endpoint URL (for example `https://mcp.jina.ai/v1?max_tokens=50000`), and `max_tokens=0` disables truncation entirely. Clients with configurable limits, such as OpenAI Codex (`tool_output_token_limit`), are otherwise left alone.
 
-### Using parallel tools vs singleton tools with arrays
+### Several queries or URLs in one call
 
-Claude Code recently started preferring `parallel_*` tools (like `parallel_search_web`, `parallel_read_url`) for concurrent operations. However, models like Qwen3-Next prefer calling singleton tools with multiple queries in an array. Both approaches work: the singleton versions (`search_web`, `search_arxiv`, `search_ssrn`, `read_url`) accept either a single string or an array of strings for the query/url parameter. When given an array, these tools automatically execute all queries in parallel internally, producing the same concurrent behavior as explicitly calling `parallel_*` tools. Use whichever style your model prefers. Arrays are capped at 5 entries, the same limit the `parallel_*` tools enforce.
+`search_web`, `search_arxiv`, `search_ssrn` and `read_url` take a string or an array on `query` / `url`. An array runs every item concurrently in a single round trip. `search_images` takes one query at a time.
+
+```jsonc
+{ "url": ["https://react.dev/reference/react/useState",
+          "https://docs.python.org/3/library/functions.html"],
+  "question": "what does the hook or built-in return" }
+```
+
+Arrays cap at 5 entries, enforced by the schema. `withAllLinks`, `withAllImages`, `question`, `chunk_size`, `topk`, `ocr` and `page` are set once for the whole array, not per entry: every URL in the call gets the same `question`, and a multi-page OCR needs one call per page.
 
 ### Why is the endpoint called /sse but using Streamable HTTP?
 
 The `/sse` endpoint URL is kept for backward compatibility with existing users. The recommended endpoint is now `/v1`. Both use the same **Streamable HTTP** transport (the new MCP standard from spec 2025-03-26), not the deprecated SSE transport.
 
-This works seamlessly because:
+This works because:
 - **Claude Desktop, Cursor, Windsurf** use `mcp-remote` which defaults to `http-first` strategy (tries Streamable HTTP first)
 - **Claude Code** has native support for both transports
 - **LM Studio** supports direct connection to Streamable HTTP endpoints
@@ -264,56 +276,74 @@ If you're using [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) as a lo
         "https://mcp.jina.ai/v1",
         "--header",
         "Authorization: Bearer ${JINA_API_KEY}",
-        "--ignore-tool", "parallel_search_web",
-        "--ignore-tool", "parallel_search_arxiv",
-        "--ignore-tool", "parallel_read_url"
+        "--ignore-tool", "search_images",
+        "--ignore-tool", "search_ssrn",
+        "--ignore-tool", "extract_pdf"
       ]
     }
   }
 }
 ```
 
-This approach filters tools at the proxy level before they reach the MCP client. However, server-side filtering via query parameters (see [Tool Filtering](#tool-filtering-before-registering)) is more efficient as it reduces token usage from the source.
+This filters at the proxy level before tools reach the client. Server-side filtering via query parameters (see [Tool Filtering](#tool-filtering-before-registering)) is cheaper, because the tokens are never sent.
 
 ### Reading a page with a question in mind
 
-By default `read_url` returns the whole page, and the model pays for every token of it to answer one question. Pass `question` and the page is instead split into passages and scored with [Reranker](https://jina.ai/reranker) v3.5, and only the top-ranked passages come back — literally the same pipeline `search_web_deep` runs on its result pages, now available on a URL you already have.
+`read_url` returns the whole page. Pass `question` and the page is chunked, its passages are scored against the query by [Reranker](https://jina.ai/reranker) v3.5, and only the highest-scoring ones are returned.
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `question` | *(unset)* | Unset returns the full page, exactly as before. Set, it returns ranked passages instead of `content`. |
-| `chunk_size` | `100` | Target passage size, counted in words (characters for CJK). **Not a token count** — 100 words is roughly 130-150 tokens of English. Passages only split at sentence boundaries, so this is a target, not a hard cut. Larger keeps more surrounding context, smaller pinpoints the answer. |
-| `topk` | `1` | Number of passages returned, best first. |
+| `question` | *(unset)* | Unset returns the full page. Set returns passages instead of `content`. |
+| `chunk_size` | `100` | Target passage size in words, split at sentence boundaries, so a target, not a hard cut. Counted in words in every script. 1-4096. |
+| `topk` | `1` | Passages to keep, best first. 1-50. |
 
-All three are optional and `question` gates the other two, so existing calls are byte-for-byte unchanged.
+`question` gates the other two. Without it the response is unchanged from a plain read.
 
 ```jsonc
-// full page: 13,713 bytes, 233 ms
-{ "url": "https://jina.ai/news/what-late-chunking-really-is-and-what-its-not-part-ii/" }
+// full page: 69,530 bytes
+{ "url": "https://www.paulgraham.com/greatwork.html" }
 
-// one passage: 756 bytes (5.5%), 569 ms
-{ "url": "https://jina.ai/news/what-late-chunking-really-is-and-what-its-not-part-ii/",
-  "question": "Which embedding models support late chunking?", "topk": 2 }
+// passages: 1,195 bytes
+{ "url": "https://www.paulgraham.com/greatwork.html",
+  "question": "Why are new ideas hard to see?", "topk": 3, "chunk_size": 50 }
 ```
 
-A question-grounded response carries `question`, `snippets` and `snippet_source: content`, and omits `content`. When extraction cannot run — an empty page, an unreadable one, or no API key to rank with — the full body is returned with `snippet_source: full_content` and a `note` saying so, rather than a prefix masquerading as a ranked answer.
+Response shape: `question`, `snippets`, `snippet_source: content`, no `content`. `snippets` is one element holding up to `topk` passages joined by ` … `. No score is returned, so relevance cannot be thresholded here. Ladder measured at `chunk_size=40`: `topk` 1 gives 433 bytes and no separator, 2 gives 699 bytes and one separator, 5 gives 1,537 bytes and one separator. Fewer than `topk` passages can come back.
 
-Three things worth knowing before tuning:
+If extraction cannot run — empty page, unreadable page, no API key to rank with — the full body comes back with `snippet_source: full_content` and a `note`.
 
-- **The score doubles as a confidence signal.** Asking a page a question it does not answer scores an order of magnitude lower than a genuine hit (measured: 0.02 against 0.51–0.81). A low top score means "this page does not say", not "ranking failed".
-- **Code blocks and tables are stripped before ranking.** The chunker removes them along with nav furniture, which is what stops boilerplate from winning on lexical overlap. The trade-off is that install commands and spec tables are not eligible passages, so *"how do I install X"* is a weak fit for this parameter.
-- **Latency is roughly double a plain read**, since the passage extraction runs alongside the fetch and adds a rerank call. `parallel_read_url` raises its own timeout floor to 60s when any entry has a `question`.
+Byte cost, same URL, same endpoint, bytes of returned text:
+
+| page | plain read | with `question` |
+|---|---|---|
+| docs.python.org/3/library/functions.html | 83,786 | 874 |
+| en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal) | 12,295 | 912 |
+| paulgraham.com/greatwork.html | 69,530 | 1,195 |
+
+Measured against a local `wrangler dev` of this repo with an API key. `r.jina.ai` returns different sizes for the same URL, so do not mix the two sets.
+
+Verified on this build: Python docs, Chinese Wikipedia, React references, GitHub READMEs, arXiv PDFs, essays. Compound questions worked here too (the os.path query returned both the `join` rule and the `splitext` example, and Beijing returned both population and area), so ask one thing per call as a habit, not because every multi-part question fails.
+
+Reproduced failure modes. The response does not flag any of these:
+
+- **Positional questions fail.** Ranking matches text, not document order. `raw.githubusercontent.com/vitejs/vite/main/packages/vite/CHANGELOG.md` is 283,749 bytes and opens with `## [8.3.0] ... (2026-09-10)`. Asked for the latest released version, it returned 1,008 bytes containing `6.0.0` and no `8.3.0` at all. Read the first screen for latest, first, current.
+- **Tables, fenced code and page furniture are removed before ranking.** [read.ts](src/utils/read.ts) says so and it holds: the GDP list page is 12,295 bytes through `read_url` and contains `Japan` but not `4,379,253`. Asked for Japan's figure, `question` returned the map colour legend, `$1–5 trillion $750 billion – $1 trillion …`. A number that lives in a table is not reachable this way.
+- **Inline code loses tokens.** `curl -fsSL https://bun.sh/install | bash` came back as `curl -fsSL | bash`. Never run a command copied out of a passage without checking the source.
+- **Blocked pages return their login wall as content.** `x.com/jina_ai` returned 315 bytes of `Log inSign up … hasn't posted` with `snippet_source: content` and no error.
+- **`chunk_size` is not monotonic.** 50 returned 521 bytes opening on the answer (`And yet empirically having new ideas is hard.`); 400 returned 2,260 bytes opening off-topic (`But the relationship is closer than that.`). Use 40-70 for commands, signatures and numbers, 150-200 for explanation.
+
+A question-grounded read gets a 60s budget against 30s for a plain read, because chunking and reranking run after the fetch. The same 60s applies to a URL array carrying a `question`.
 
 ### Reading a scanned document or a PDF
 
-A plain read parses the page's HTML. That returns nothing useful when the text is not in the markup — a scanned page, an image-only PDF — and it tends to flatten formulas and table structure even when it does work. Pass `ocr` and the rendered page goes through [jina-ocr-v1](https://jina.ai/models/jina-ocr-v1) as an image instead, which returns Markdown with the formulas and tables intact.
+A plain read parses HTML. It returns nothing useful when the text is not in the markup (scanned pages, image-only PDFs), and flattens formulas and table structure otherwise. Pass `ocr` and the rendered page goes through [jina-ocr-v1](https://jina.ai/models/jina-ocr-v1) as an image, returning Markdown with formulas and tables intact.
 
 ```jsonc
 { "url": "https://arxiv.org/pdf/2609.03181", "ocr": true }            // page 1
 { "url": "https://arxiv.org/pdf/2609.03181", "ocr": true, "page": 2 } // page 2
 ```
 
-**It parses one page per call.** Page 1 unless `page` says otherwise, so a long document needs one call per page rather than one call for the document. Measured against arXiv 2609.03181, a 20-page paper:
+**One page per call.** Page 1 unless `page` says otherwise, so a long document needs one call per page. Measured on arXiv 2609.03181, a 20-page paper:
 
 | | bytes returned | tokens billed |
 |---|---|---|
@@ -321,38 +351,27 @@ A plain read parses the page's HTML. That returns nothing useful when the text i
 | `ocr: true` | 2,963 (page 1) | 61,520 |
 | `ocr: true, page: 2` | 2,749 (page 2) | 62,720 |
 
-So it is off by default, and worth turning on only when the HTML path has failed you or the layout is the point. `parallel_read_url` takes both flags per entry, which is also the cheapest way to OCR several pages of one document: repeat the same url with different `page` values.
+Re-measured on a local `wrangler dev`: 49,745 / 2,968 / 2,923 bytes. Within 1 percent of the published figures.
+
+Off by default, because OCR bills more tokens per page than a plain read costs per document. Turn it on when the HTML path fails or the layout matters. `page` is shared across a URL array, so several pages of one document take one call each.
 
 ### What is the difference between `search_web` and `search_web_deep`?
 
-`search_web` returns the snippet the search engine picked — around 20 words, often a keyword-bearing fragment that never answers the question. `search_web_deep` also reads each page via [Reader](https://jina.ai/reader), splits it into ~100-word passages at sentence boundaries, and scores every passage from every page in one listwise [Reranker](https://jina.ai/reranker) call, so any page's passage can outrank any other's. `snippet_source=auto` (the default) enters each page's engine snippet as one more candidate and the `snippet_source` field on each result says which won; `content` never enters it and omits pages it could not read, so it may return fewer than `num`.
+Removed in v1.10.0. Use `search_web`, then `read_url` on the pages you picked:
 
-Top 5 per mode from the live server. Snippets keep their start and end, middle replaced by `(...n chars...)` so length stays visible:
+```jsonc
+// 1. find pages
+{ "query": "how to undo the last commit in git", "num": 5 }            // search_web
 
-**English — `what is the latest model from jina ai`**
+// 2. read the ones you want, reduced to answering passages
+{ "url": ["https://stackoverflow.com/questions/9257533/...",
+          "https://git-scm.com/docs/git-reset"],                      // read_url
+  "question": "how to undo the last commit without losing work" }
+```
 
-| # | `search_web` | `deep`·`auto` | `deep`·`content` |
-|---|---|---|---|
-| 1 | **jina.ai/models**<br>We've been moving the needle in search `(...82 chars...)` discover each milestone. | **elastic.co/search-labs/blog/on-p…**<br>All 28 Jina AI models available, `(...74 chars...)` and jina-reranker-v3 . | **jina.ai**<br>Tech blog Bootstrapping Audio `(...1950 chars...)` 30, 2023 Jina Embeddi |
-| 2 | **jina.ai**<br>Jina models natively inside Elasticsearc `(...94 chars...)` May 30, 2024 Jina CLIP: | **jina.ai/embeddings**<br>jina-embeddings-v4 is our latest `(...101 chars...)` late-interaction retrieval | **jina.ai/embeddings**<br>arXiv July 20, 2026 jina-reranker-v3.5: `(...1833 chars...)` Sentence Embedding Models |
-| 3 | **huggingface.co/jinaai**<br>Jina AI: Embeddings, Rerankers and `(...102 chars...)` Recently updated jinaai | **huggingface.co/jinaai**<br>Jina AI: Embeddings, Rerankers and `(...99 chars...)` Sort: Recently updated | **huggingface.co/jinaai**<br>Recent Activity florian-hoenickeupdated `(...586 chars...)` ago • 6 Team members 23 |
-| 4 | **jina.ai/embeddings**<br>jina-embeddings-v4 is our latest `(...101 chars...)` late-interaction retrieval | **jina.ai**<br>Tech blog Bootstrapping Audio `(...1950 chars...)` 30, 2023 Jina Embeddi | **cloud.google.com/blog/products/a…**<br>Jina Reader isn't just another scraper; `(...715 chars...)` beyond simple rules. |
-| 5 | **elastic.co/search-labs/blog/on-p…**<br>All 28 Jina AI models available, `(...74 chars...)` and jina-reranker-v3 . | **newrelic.com/instant-observabili…**<br>Early issue detection: Detect and `(...483 chars...)` These reports include: | **jina.ai/models**<br>warning calendar\month 2023-06-17 The `(...331 chars...)` 2026Q2 2026Q1 2025Q4 |
+Two calls instead of one, and the caller picks the pages. That is the reason for the removal: `search_web_deep` picked them, and picked wrong. Measured on `latest stable vite version`, where the npm result carries `Latest version: 8.3.0` — `search_web` returned that result in 2 of 5 on both runs; the deep path returned it 1 of 5 and then 0 of 5 with `v4.vite.dev/releases` ranked first, and `snippet_source=content` dropped the npm page outright. Three identical calls returned three different result sets. Output ran 3-4x the bytes of `search_web` per result (348-682 against 138-191). Its `rerank_score` ranked relevance, not correctness: at `num=2` the npm result carrying `8.3.0` scored 0.1303, below a page stating no version at 0.4765.
 
-**Chinese — `jina ai 最新的模型是什么`**
-
-| # | `search_web` | `deep`·`auto` | `deep`·`content` |
-|---|---|---|---|
-| 1 | **jina.ai/zh-TW/about-us**<br>Jina AI 由肖涵博士於2020年創建,是一家領先的搜索AI 公司。我們專注開發向量模型、重排器、Reader和小型語言模型,幫助企業和開發者構建強大的搜索 | **ithome.com.tw/news/159507**<br>Jina AI最新第二代文字嵌入模型jina-embeddings-v2，已可處 `(...138 chars...)` 型現在可以處理多達8,192個token上下文長度。 | **ithome.com.tw/news/159507**<br>Jina AI最新第二代文字嵌入模型jina-embeddings-v2，已可處 `(...138 chars...)` 型現在可以處理多達8,192個token上下文長度。 |
-| 2 | **jina.ai/zh-TW/news/jina-reader-f…**<br>Grounding 技術對GenAI 應用程式來說至關重要。我們全新的https `(...27 chars...)` 的最新知識，實現搜尋grounding，讓回應更值得 | **jina.ai/zh-CN/embeddings**<br>两者都与 v5-text 完全兼容——无需重新索引。 v5-text：最新最先进 `(...148 chars...)` English 和检索任务中树立了新的基准。 | **jina.ai/zh-CN/embeddings**<br>两者都与 v5-text 完全兼容——无需重新索引。 v5-text：最新最先进 `(...148 chars...)` English 和检索任务中树立了新的基准。 |
-| 3 | **elastic.co/cn/jina-search-models**<br>什么是Jina 搜索模型？ Jina 模型是开源的、前沿的检索AI `(...40 chars...)` 和文档中提取和构建内容的读取器。 | **elastic.co/cn/jina-search-models**<br>您可以从 semantic_text 开始，或访问各模型子页面，查看代码示例、A `(...138 chars...)` Inference Service 上使用。 | **elastic.co/cn/jina-search-models**<br>您可以从 semantic_text 开始，或访问各模型子页面，查看代码示例、A `(...138 chars...)` Inference Service 上使用。 |
-| 4 | **milvus.io/docs/zh-hant/embed-wit…**<br>Jina AI. Jina AI 的嵌入模型是高性能的文字嵌入模型，可以將文字輸入轉換為數字表示，捕捉文字的語義。這些模型在密集檢索、語義文字相似性和多語言理解等應用中表現 | **milvus.io/docs/zh-hant/embed-wit…**<br>Jina AI’s embedding models are `(...541 chars...)` an API key from Jina AI. | **jina.ai/zh-TW/about-us**<br>我們專注開發向量模型、重排器、Reader和小型語言模型，幫助企業和開發者構建強 `(...51 chars...)` 被 Elastic（NYSE: ESTC）收購。 |
-| 5 | **jina.ai/zh-CN/embeddings**<br>v5-omni：一个向量，涵盖所有模态 文本、图像、音频、视频——共享同一个向量 `(...36 chars...)` 亿时性能最佳的开放权重全向模型。v5- | **jina.ai/zh-TW/about-us**<br>Jina AI 由肖涵博士於2020年創建,是一家領先的搜索AI 公司。我們專注開發向量模型、重排器、Reader和小型語言模型,幫助企業和開發者構建強大的 | **jina.ai/zh-TW/news/jina-reader-f…**<br>因為阻止企業向數百萬用戶部署 LLMs 的主要障礙是信任度：答案是真實的，還是僅 `(...86 chars...)` 就能從網路上搜尋最新的世界知識。 |
-
-- **The engine snippet is sometimes the better answer.** The top three English `auto` results came back as `serp` — short, and the first answers the query more directly than any extracted passage, while `content` promotes jina.ai homepage navigation instead. Prefer `auto` unless something downstream needs full passages.
-- **The reranker scores relevance, not freshness.** Both Chinese deep runs rank a 2023 `jina-embeddings-v2` article first for a query asking which model is *latest*. Bound the window with `tbs`, or check each result's `date`.
-- **Passages are not uniformly ~100 words.** Navigation-heavy pages lack the sentence punctuation to split on, so the first two English `content` results run to ~2,000 characters — the per-passage ceiling.
-
+The pipeline is still available: `read_url` with `question` runs the same chunk-and-rerank on a page you chose. Its limits are listed in [Reading a page with a question in mind](#reading-a-page-with-a-question-in-mind).
 
 ## Developer Guide
 
