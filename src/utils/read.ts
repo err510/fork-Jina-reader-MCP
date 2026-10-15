@@ -141,7 +141,8 @@ async function readWithQuestion(
  */
 export async function readUrlFromConfig(
     urlConfig: ReadUrlConfig,
-    bearerToken?: string
+    bearerToken?: string,
+    clientIp?: string
 ): Promise<ReadUrlResponse> {
     try {
         // Normalize the URL first
@@ -159,6 +160,10 @@ export async function readUrlFromConfig(
         // Add Authorization header if bearer token is available
         if (bearerToken) {
             headers['Authorization'] = `Bearer ${bearerToken}`;
+        } else if (clientIp) {
+            // Anonymous reads are rate-limited per X-Forwarded-For, so pass the
+            // caller's IP instead of letting all keyless users share the Worker's.
+            headers['X-Forwarded-For'] = clientIp;
         }
 
         if (urlConfig.withAllLinks) {
@@ -289,7 +294,8 @@ export async function readUrlFromConfig(
 export async function executeParallelUrlReads(
     urlConfigs: ReadUrlConfig[],
     bearerToken?: string,
-    timeout: number = 30000
+    timeout: number = 30000,
+    clientIp?: string
 ): Promise<ReadUrlResponse[]> {
     // Per-URL deadline. The whole batch used to be raced against one rejecting
     // timeout, so one slow page threw away every read that had already
@@ -297,7 +303,7 @@ export async function executeParallelUrlReads(
     return Promise.all(
         urlConfigs.map((urlConfig) =>
             withDeadline<ReadUrlResponse>(
-                () => readUrlFromConfig(urlConfig, bearerToken),
+                () => readUrlFromConfig(urlConfig, bearerToken, clientIp),
                 timeout,
                 () => ({ error: `Read timed out after ${timeout}ms`, url: urlConfig.url })
             )

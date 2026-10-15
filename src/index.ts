@@ -181,6 +181,10 @@ export default {
 		const acceptLanguage = request.headers.get('Accept-Language');
 
 		if (clientIp) client.ip = clientIp;
+
+		// r.jina.ai rate-limits anonymous reads per X-Forwarded-For. Without it,
+		// every keyless caller would share the Worker's egress IP and one budget.
+		props.clientIp = clientIp || undefined;
 		if (userAgent) client.userAgent = userAgent;
 		if (acceptLanguage) client.acceptLanguage = acceptLanguage;
 		if (Object.keys(client).length > 0) context.client = client;

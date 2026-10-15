@@ -130,6 +130,9 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					// Add Authorization header if bearer token is available
 					if (props.bearerToken) {
 						headers['Authorization'] = `Bearer ${props.bearerToken}`;
+					} else if (props.clientIp) {
+						// Per-caller anonymous rate limit, as in read_url
+						headers['X-Forwarded-For'] = props.clientIp;
 					}
 
 					const response = await fetch('https://r.jina.ai/', {
@@ -225,7 +228,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						const { readUrlFromConfig } = await import("../utils/read.js");
 
 						// Use the shared utility function
-						const result = await readUrlFromConfig({ url: singleUrl, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk, ocr, page }, props.bearerToken);
+						const result = await readUrlFromConfig({ url: singleUrl, withAllLinks: withAllLinks || false, withAllImages: withAllImages || false, question, chunk_size, topk, ocr, page }, props.bearerToken, props.clientIp);
 
 						if ('error' in result) {
 							return createErrorResponse(result.error);
@@ -251,7 +254,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						const { executeParallelUrlReads } = await import("../utils/read.js");
 
 						// Execute parallel URL reads using the utility
-						const results = await executeParallelUrlReads(uniqueUrls, props.bearerToken, readTimeout);
+						const results = await executeParallelUrlReads(uniqueUrls, props.bearerToken, readTimeout, props.clientIp);
 
 						// Format results for consistent output
 						const contentItems: Array<{ type: 'text'; text: string }> = [];
