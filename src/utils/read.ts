@@ -102,7 +102,7 @@ async function readWithQuestion(
     question: string,
     urlConfig: ReadUrlConfig,
     bearerToken?: string
-): Promise<{ snippets: string[]; title?: string; } | null> {
+): Promise<{ snippets: string[]; title?: string; url?: string; } | null> {
     if (!normalizedUrl || !question) return null;
 
     const response = await fetch('https://svip.jina.ai/', {
@@ -123,13 +123,13 @@ async function readWithQuestion(
 
     if (!response.ok) return null;
 
-    const data = await response.json() as { results?: Array<{ snippet?: string; title?: string; }>; };
+    const data = await response.json() as { results?: Array<{ snippet?: string; title?: string; url?: string; }>; };
     const first = data?.results?.[0];
     if (!first?.snippet) return null;
 
     // One url in, so at most one result out; its snippet already joins the top
     // `topk` passages with the separator deep search uses.
-    return { snippets: [first.snippet], title: first.title };
+    return { snippets: [first.snippet], title: first.title, url: first.url };
 }
 
 // ============================================================================
@@ -195,11 +195,35 @@ export async function readUrlFromConfig(
         const question = urlConfig.question?.trim() || undefined;
         const useSvip = Boolean(normalizedUrl && question && bearerToken);
 
-        // When both are present the passage extraction runs concurrently with the
-        // plain read. The read is not wasted work: it is the fallback body if
-        // extraction comes back empty, and it is what supplies links/images,
-        // which the passage endpoint does not return. Sequencing them would add a
-        // full round-trip to every question-grounded read for no benefit.
+        // A failure here must not fail the read; it degrades to full content.
+        const extractPassages = () =>
+            readWithQuestion(normalizedUrl, question as string, urlConfig, bearerToken).catch(() => null);
+
+        // svip reads the page itself, through r.jina.ai under the caller's key, so
+        // a full read running alongside it fetched and billed the same page twice
+        // and was then discarded. The full read now runs only as the fallback when
+        // extraction comes back empty, or concurrently when the caller also wants
+        // links/images, which the passage endpoint does not return.
+        const wantsPageExtras = Boolean(urlConfig.withAllLinks || urlConfig.withAllImages);
+        if (useSvip && !wantsPageExtras) {
+            const passages = await extractPassages();
+            if (passages) {
+                return {
+                    success: true,
+                    url: urlConfig.url,
+                    structuredData: {
+                        url: passages.url || normalizedUrl,
+                        title: passages.title,
+                        question,
+                        snippets: passages.snippets,
+                        snippet_source: 'content',
+                    },
+                    withAllLinks: false,
+                    withAllImages: false
+                };
+            }
+        }
+
         const [response, snippetResult] = await Promise.all([
             fetch('https://r.jina.ai/', {
                 method: 'POST',
@@ -207,10 +231,7 @@ export async function readUrlFromConfig(
                 headers,
                 body: JSON.stringify({ url: normalizedUrl }),
             }),
-            useSvip
-                // A failure here must not fail the read; it degrades to full content.
-                ? readWithQuestion(normalizedUrl, question as string, urlConfig, bearerToken).catch(() => null)
-                : Promise.resolve(null),
+            useSvip && wantsPageExtras ? extractPassages() : Promise.resolve(null),
         ]);
 
         if (!response.ok) {

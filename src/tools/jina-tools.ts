@@ -17,6 +17,7 @@ import {
 	type SearchSsrnArgs,
 	type SearchImageArgs,
 	type SearchJinaBlogArgs,
+	type SearchResultOrError,
 	formatSingleSearchResultToContentItems,
 	formatParallelSearchResultsToContentItems
 } from "../utils/search.js";
@@ -40,6 +41,25 @@ function sniffBase64ImageMimeType(base64: string): string {
 
 const SCREENSHOT_TIMEOUT_MS = 60000;
 const SCREENSHOT_DOWNLOAD_TIMEOUT_MS = 20000;
+// These calls had no deadline, so a hung upstream held the invocation open.
+// Measured: rerank over 1024 documents 1.5s, 1000 embeddings ~1s, extract_pdf
+// 12-16s on three arXiv papers.
+const RERANK_TIMEOUT_MS = 30000;
+const EMBEDDINGS_TIMEOUT_MS = 30000;
+const EXTRACT_PDF_TIMEOUT_MS = 90000;
+
+/**
+ * Decode one base64 embedding (little-endian float32, as the API sends it).
+ *
+ * Requested instead of JSON floats: for 1000 strings the response drops from
+ * 11.7MB to 5.5MB and from ~5.8s to ~1.05s (3 runs each).
+ */
+function decodeBase64Embedding(encoded: string): Float32Array {
+	const bytes = Buffer.from(encoded, 'base64');
+	// Copied out because Buffer.from may return a view at an offset that is not
+	// a multiple of 4, which a Float32Array cannot sit on.
+	return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+}
 
 export function registerJinaTools(server: McpServer, getProps: () => any, enabledTools: Set<string> | null = null) {
 	// Helper to get client name for guardrail check
@@ -55,6 +75,27 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 	});
 	// Helper to check if a tool is enabled
 	const isToolEnabled = (toolName: string) => enabledTools === null || enabledTools.has(toolName);
+
+	// The text search tools share one shape: a query or an array of up to 5, run
+	// concurrently after removing duplicates. Failures carry isError so a client
+	// can tell them from results; they used to come back as ordinary text. A batch
+	// is an error only when every query in it failed.
+	const runSearchTool = async <T extends { query: string }>(
+		query: string | string[],
+		toArgs: (query: string) => T,
+		search: (args: T) => Promise<SearchResultOrError>
+	) => {
+		if (typeof query === 'string' || query.length === 1) {
+			const result = await search(toArgs(typeof query === 'string' ? query : query[0]));
+			return 'error' in result
+				? createErrorResponse(`Error: ${result.error}`)
+				: { content: formatSingleSearchResultToContentItems(result) };
+		}
+
+		const results = await executeParallelSearches([...new Set(query)].map(toArgs), search, { timeout: 30000 });
+		const content = formatParallelSearchResultsToContentItems(results);
+		return results.every((result) => 'error' in result) ? { content, isError: true } : { content };
+	};
 
 
 	// Primer tool - provides current world knowledge for LLMs
@@ -293,7 +334,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			"Search the web. Returns titles, URLs and search-engine snippets.",
 			{
 				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
-				num: z.number().int().min(1).max(100).default(30),
+				num: z.number().int().min(1).max(10).default(10),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
 				location: z.string().optional(),
 				gl: z.string().optional().describe("Country code, e.g. 'de'."),
@@ -308,36 +349,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						return tokenError;
 					}
 
-					// Handle single query or single-element array
-					if (typeof query === 'string' || (Array.isArray(query) && query.length === 1)) {
-						const singleQuery = typeof query === 'string' ? query : query[0];
-						const searchResult = await executeWebSearch({ query: singleQuery, num, tbs, location, gl, hl }, props.bearerToken);
-
-						return {
-							content: formatSingleSearchResultToContentItems(searchResult),
-						};
-					}
-
-					// Handle multiple queries with parallel search
-					if (Array.isArray(query) && query.length > 1) {
-						const searches = query.map(q => ({ query: q, num, tbs, location, gl, hl }));
-
-						const uniqueSearches = searches.filter((search, index, self) =>
-							index === self.findIndex(s => s.query === search.query)
-						);
-
-						const webSearchFunction = async (searchArgs: SearchWebArgs) => {
-							return executeWebSearch(searchArgs, props.bearerToken);
-						};
-
-						const results = await executeParallelSearches(uniqueSearches, webSearchFunction, { timeout: 30000 });
-
-						return {
-							content: formatParallelSearchResultsToContentItems(results),
-						};
-					}
-
-					return createErrorResponse("Invalid query format");
+					return await runSearchTool(query, (q) => ({ query: q, num, tbs, location, gl, hl }), (args: SearchWebArgs) => executeWebSearch(args, props.bearerToken));
 				} catch (error) {
 					return createErrorResponse(`Error: ${error instanceof Error ? error.message : String(error)}`);
 				}
@@ -353,7 +365,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			"Search arXiv preprints (physics, maths, CS, quantitative biology and finance).",
 			{
 				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
-				num: z.number().int().min(1).max(100).default(30),
+				num: z.number().int().min(1).max(10).default(10),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
@@ -365,36 +377,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						return tokenError;
 					}
 
-					// Handle single query or single-element array
-					if (typeof query === 'string' || (Array.isArray(query) && query.length === 1)) {
-						const singleQuery = typeof query === 'string' ? query : query[0];
-						const searchResult = await executeArxivSearch({ query: singleQuery, num, tbs }, props.bearerToken);
-
-						return {
-							content: formatSingleSearchResultToContentItems(searchResult),
-						};
-					}
-
-					// Handle multiple queries with parallel search
-					if (Array.isArray(query) && query.length > 1) {
-						const searches = query.map(q => ({ query: q, num, tbs }));
-
-						const uniqueSearches = searches.filter((search, index, self) =>
-							index === self.findIndex(s => s.query === search.query)
-						);
-
-						const arxivSearchFunction = async (searchArgs: SearchArxivArgs) => {
-							return executeArxivSearch(searchArgs, props.bearerToken);
-						};
-
-						const results = await executeParallelSearches(uniqueSearches, arxivSearchFunction, { timeout: 30000 });
-
-						return {
-							content: formatParallelSearchResultsToContentItems(results),
-						};
-					}
-
-					return createErrorResponse("Invalid query format");
+					return await runSearchTool(query, (q) => ({ query: q, num, tbs }), (args: SearchArxivArgs) => executeArxivSearch(args, props.bearerToken));
 				} catch (error) {
 					return createErrorResponse(`Error: ${error instanceof Error ? error.message : String(error)}`);
 				}
@@ -409,7 +392,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			"Search SSRN working papers (social science, economics, law, finance, management).",
 			{
 				query: z.union([z.string(), z.array(z.string()).min(1).max(5)]),
-				num: z.number().int().min(1).max(100).default(30),
+				num: z.number().int().min(1).max(10).default(10),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year).")
 			},
 			async ({ query, num, tbs }: { query: string | string[]; num: number; tbs?: string }) => {
@@ -421,36 +404,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						return tokenError;
 					}
 
-					// Handle single query or single-element array
-					if (typeof query === 'string' || (Array.isArray(query) && query.length === 1)) {
-						const singleQuery = typeof query === 'string' ? query : query[0];
-						const searchResult = await executeSsrnSearch({ query: singleQuery, num, tbs }, props.bearerToken);
-
-						return {
-							content: formatSingleSearchResultToContentItems(searchResult),
-						};
-					}
-
-					// Handle multiple queries with parallel search
-					if (Array.isArray(query) && query.length > 1) {
-						const searches = query.map(q => ({ query: q, num, tbs }));
-
-						const uniqueSearches = searches.filter((search, index, self) =>
-							index === self.findIndex(s => s.query === search.query)
-						);
-
-						const ssrnSearchFunction = async (searchArgs: SearchSsrnArgs) => {
-							return executeSsrnSearch(searchArgs, props.bearerToken);
-						};
-
-						const results = await executeParallelSearches(uniqueSearches, ssrnSearchFunction, { timeout: 30000 });
-
-						return {
-							content: formatParallelSearchResultsToContentItems(results),
-						};
-					}
-
-					return createErrorResponse("Invalid query format");
+					return await runSearchTool(query, (q) => ({ query: q, num, tbs }), (args: SearchSsrnArgs) => executeSsrnSearch(args, props.bearerToken));
 				} catch (error) {
 					return createErrorResponse(`Error: ${error instanceof Error ? error.message : String(error)}`);
 				}
@@ -481,36 +435,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					// Optional semantic reordering of the lexically matched posts
 					const rerankConfig = { bearerToken: props.bearerToken, apiBaseUrl: props.apiBaseUrl };
 
-					// Handle single query or single-element array
-					if (typeof query === 'string' || (Array.isArray(query) && query.length === 1)) {
-						const singleQuery = typeof query === 'string' ? query : query[0];
-						const searchResult = await executeJinaBlogSearch({ query: singleQuery, num, tbs }, ghostApiKey, rerankConfig);
-
-						return {
-							content: formatSingleSearchResultToContentItems(searchResult),
-						};
-					}
-
-					// Handle multiple queries with parallel search
-					if (Array.isArray(query) && query.length > 1) {
-						const searches = query.map(q => ({ query: q, num, tbs }));
-
-						const uniqueSearches = searches.filter((search, index, self) =>
-							index === self.findIndex(s => s.query === search.query)
-						);
-
-						const jinaBlogSearchFunction = async (searchArgs: SearchJinaBlogArgs) => {
-							return executeJinaBlogSearch(searchArgs, ghostApiKey, rerankConfig);
-						};
-
-						const results = await executeParallelSearches(uniqueSearches, jinaBlogSearchFunction, { timeout: 30000 });
-
-						return {
-							content: formatParallelSearchResultsToContentItems(results),
-						};
-					}
-
-					return createErrorResponse("Invalid query format");
+					return await runSearchTool(query, (q) => ({ query: q, num, tbs }), (args: SearchJinaBlogArgs) => executeJinaBlogSearch(args, ghostApiKey, rerankConfig));
 				} catch (error) {
 					return createErrorResponse(`Error: ${error instanceof Error ? error.message : String(error)}`);
 				}
@@ -525,7 +450,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 			"Search the web for images. Returns base64 JPEGs by default.",
 			{
 				query: z.string(),
-				num: z.number().int().min(1).max(30).default(10),
+				num: z.number().int().min(1).max(10).default(10),
 				return_url: z.boolean().default(false).describe("Return URLs and metadata instead of base64 images."),
 				tbs: z.string().optional().describe("Age limit: qdr:h, qdr:d, qdr:w, qdr:m, qdr:y (hour to year)."),
 				location: z.string().optional(),
@@ -654,6 +579,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 
 					const response = await fetch(`${props.apiBaseUrl}/v1/rerank`, {
 						method: 'POST',
+						signal: AbortSignal.timeout(RERANK_TIMEOUT_MS),
 						headers: {
 							'Accept': 'application/json',
 							'Content-Type': 'application/json',
@@ -663,7 +589,10 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 							model: 'jina-reranker-v3.5',
 							query,
 							top_n: top_n || documents.length,
-							documents
+							documents,
+							// The caller already holds the documents; the text is attached
+							// below by index instead of being sent back over the wire.
+							return_documents: false
 						}),
 					});
 
@@ -680,7 +609,11 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						for (const result of data.results) {
 							contentItems.push({
 								type: "text" as const,
-								text: yamlStringify(result),
+								text: yamlStringify({
+									index: result.index,
+									relevance_score: result.relevance_score,
+									document: { text: documents[result.index] },
+								}),
 							});
 						}
 					}
@@ -724,6 +657,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					// Get embeddings from Jina API
 					const response = await fetch(`${props.apiBaseUrl}/v1/embeddings`, {
 						method: 'POST',
+						signal: AbortSignal.timeout(EMBEDDINGS_TIMEOUT_MS),
 						headers: {
 							'Accept': 'application/json',
 							'Content-Type': 'application/json',
@@ -732,6 +666,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 						body: JSON.stringify({
 							model: 'jina-embeddings-v5-text-small',
 							task: 'text-matching',
+							embedding_type: 'base64',
 							input: strings
 						}),
 					});
@@ -747,7 +682,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 					}
 
 					// Extract embeddings
-					const embeddings = data.data.map((item: any) => item.embedding);
+					const embeddings = data.data.map((item: any) => decodeBase64Embedding(item.embedding));
 
 					// Use submodular optimization to select diverse strings
 					let selectedIndices: number[];
@@ -820,6 +755,7 @@ export function registerJinaTools(server: McpServer, getProps: () => any, enable
 
 					const response = await fetch('https://svip.jina.ai/extract-pdf', {
 						method: 'POST',
+						signal: AbortSignal.timeout(EXTRACT_PDF_TIMEOUT_MS),
 						headers: {
 							'Accept': 'application/json',
 							'Content-Type': 'application/json',

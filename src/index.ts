@@ -220,12 +220,13 @@ export default {
 		// Add context to props
 		props.context = context;
 
-		// Create server with request-scoped props (fresh per request to avoid race conditions)
-		const server = createServer(enabledTools, props);
-
 		// Handle MCP endpoints using createMcpHandler (stateless, no Durable Objects)
 		// /v1 is the primary endpoint, /sse is kept for backward compatibility
 		if (url.pathname === "/v1" || url.pathname === "/sse" || url.pathname === "/sse/message") {
+			// Create server with request-scoped props (fresh per request to avoid race
+			// conditions). Built here rather than for every path: `/` and unknown
+			// paths used to register all tools only to discard them.
+			const server = createServer(enabledTools, props);
 			const route = url.pathname === "/v1" ? "/v1" : "/sse";
 			const handler = createMcpHandler(server, {
 				route,

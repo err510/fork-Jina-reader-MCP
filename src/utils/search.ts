@@ -1,5 +1,6 @@
 import { stringify as yamlStringify } from "yaml";
 import { withDeadline } from "./timeout.js";
+import { describeApiError } from "./api-error-handler.js";
 
 // A single search/read had no client-side deadline at all: a hung upstream held
 // the Worker invocation open until the platform killed it. Every outbound call
@@ -85,7 +86,7 @@ export async function executeWebSearch(
             },
             body: JSON.stringify({
                 q: searchArgs.query,
-                num: searchArgs.num || 30,
+                num: searchArgs.num || 10,
                 ...(searchArgs.tbs && { tbs: searchArgs.tbs }),
                 ...(searchArgs.location && { location: searchArgs.location }),
                 ...(searchArgs.gl && { gl: searchArgs.gl }),
@@ -94,7 +95,7 @@ export async function executeWebSearch(
         });
 
         if (!response.ok) {
-            return { error: `Search failed for query "${searchArgs.query}": ${response.statusText}` };
+            return { error: `Search failed for query "${searchArgs.query}": ${await describeApiError(response)}` };
         }
 
         const data = await response.json() as any;
@@ -123,13 +124,13 @@ export async function executeArxivSearch(
             body: JSON.stringify({
                 q: searchArgs.query,
                 domain: 'arxiv',
-                num: searchArgs.num || 30,
+                num: searchArgs.num || 10,
                 ...(searchArgs.tbs && { tbs: searchArgs.tbs })
             }),
         });
 
         if (!response.ok) {
-            return { error: `arXiv search failed for query "${searchArgs.query}": ${response.statusText}` };
+            return { error: `arXiv search failed for query "${searchArgs.query}": ${await describeApiError(response)}` };
         }
 
         const data = await response.json() as any;
@@ -158,13 +159,13 @@ export async function executeSsrnSearch(
             body: JSON.stringify({
                 q: searchArgs.query,
                 domain: 'ssrn',
-                num: searchArgs.num || 30,
+                num: searchArgs.num || 10,
                 ...(searchArgs.tbs && { tbs: searchArgs.tbs })
             }),
         });
 
         if (!response.ok) {
-            return { error: `SSRN search failed for query "${searchArgs.query}": ${response.statusText}` };
+            return { error: `SSRN search failed for query "${searchArgs.query}": ${await describeApiError(response)}` };
         }
 
         const data = await response.json() as any;
@@ -464,7 +465,7 @@ export async function executeImageSearch(
         });
 
         if (!response.ok) {
-            return { error: `Image search failed for query "${searchArgs.query}": ${response.statusText}` };
+            return { error: `Image search failed for query "${searchArgs.query}": ${await describeApiError(response)}` };
         }
 
         const data = await response.json() as any;

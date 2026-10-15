@@ -29,7 +29,7 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  *
  * Returned as a flat Float64Array (n*n) to avoid n separate JS arrays.
  */
-function buildSimilarityMatrix(embeddings: number[][]): Float64Array {
+function buildSimilarityMatrix(embeddings: ArrayLike<number>[]): Float64Array {
     const n = embeddings.length;
 
     // sumSquares[i] and norms[i] are derived once per vector instead of once per pair
@@ -166,7 +166,7 @@ class GainHeap {
     }
 }
 
-export function lazyGreedySelection(embeddings: number[][], k: number): number[] {
+export function lazyGreedySelection(embeddings: ArrayLike<number>[], k: number): number[] {
     const n = embeddings.length;
     if (k >= n) return Array.from({ length: n }, (_, i) => i);
 
@@ -210,7 +210,7 @@ export function lazyGreedySelection(embeddings: number[][], k: number): number[]
 }
 
 export function lazyGreedySelectionWithSaturation(
-    embeddings: number[][],
+    embeddings: ArrayLike<number>[],
     threshold: number = 1e-2
 ): { selected: number[], optimalK: number, values: number[] } {
     const n = embeddings.length;

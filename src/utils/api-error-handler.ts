@@ -28,53 +28,43 @@ async function readErrorDetail(response: Response): Promise<string> {
 	}
 }
 
+const AUTH_FAILED_MESSAGE = "Authentication failed. Please set your API key in the Jina AI MCP settings. You can get a free API key by visiting https://jina.ai and signing up for an account.";
+const OUT_OF_QUOTA_MESSAGE = "This key is out of quota. Please top up this key at https://jina.ai";
+const RATE_LIMITED_MESSAGE = "Rate limit exceeded. Please upgrade your API key to get higher rate limits. Visit https://jina.ai to manage your subscription and increase your usage limits.";
+
+/** Statuses about the caller's key rather than the request, answered with a fixed message */
+const ACCOUNT_ERROR_MESSAGES: Record<number, string> = {
+	401: AUTH_FAILED_MESSAGE,
+	402: OUT_OF_QUOTA_MESSAGE,
+	429: RATE_LIMITED_MESSAGE,
+};
+
+/**
+ * Describe why a Jina API call failed, in words a model can act on.
+ *
+ * Shared by handleApiError and the search tools, which return per-query errors
+ * as strings. Those used to carry only the status line ("Unauthorized"), so an
+ * expired key or an exhausted quota looked like any other failure.
+ */
+export async function describeApiError(response: Response): Promise<string> {
+	const accountError = ACCOUNT_ERROR_MESSAGES[response.status];
+	if (accountError) return accountError;
+
+	const detail = await readErrorDetail(response);
+	return `${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`;
+}
+
 /**
  * Utility function to handle common API errors for Jina AI services
  * Returns a standardized error response object for MCP tools
  */
 export async function handleApiError(response: Response, context: string = "API request") {
-	if (response.status === 401) {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: "Authentication failed. Please set your API key in the Jina AI MCP settings. You can get a free API key by visiting https://jina.ai and signing up for an account.",
-				},
-			],
-			isError: true,
-		};
-	}
-	if (response.status === 402) {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: "This key is out of quota. Please top up this key at https://jina.ai",
-				},
-			],
-			isError: true,
-		};
-	}
-	
-	if (response.status === 429) {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: "Rate limit exceeded. Please upgrade your API key to get higher rate limits. Visit https://jina.ai to manage your subscription and increase your usage limits.",
-				},
-			],
-			isError: true,
-		};
-	}
-	
-	// Default error message for other HTTP errors
-	const detail = await readErrorDetail(response);
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: `Error: ${context} failed - ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`,
+				text: ACCOUNT_ERROR_MESSAGES[response.status]
+					?? `Error: ${context} failed - ${await describeApiError(response)}`,
 			},
 		],
 		isError: true,
