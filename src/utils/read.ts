@@ -1,4 +1,3 @@
-import { normalizeUrl } from "./url-normalizer.js";
 import { withDeadline } from "./timeout.js";
 
 // r.jina.ai had no client-side deadline: a hung read held the Worker invocation
@@ -98,12 +97,12 @@ export type ReadUrlResponse = ReadUrlResult | ReadUrlError;
  * and wrong rather than loud.
  */
 async function readWithQuestion(
-    normalizedUrl: string,
+    targetUrl: string,
     question: string,
     urlConfig: ReadUrlConfig,
     bearerToken?: string
 ): Promise<{ snippets: string[]; title?: string; url?: string; } | null> {
-    if (!normalizedUrl || !question) return null;
+    if (!targetUrl || !question) return null;
 
     const response = await fetch('https://svip.jina.ai/', {
         method: 'POST',
@@ -115,7 +114,7 @@ async function readWithQuestion(
         },
         body: JSON.stringify({
             q: question,
-            url: normalizedUrl,
+            url: targetUrl,
             topk: urlConfig.topk ?? DEFAULT_SNIPPET_TOPK,
             chunk_size: urlConfig.chunk_size ?? DEFAULT_SNIPPET_CHUNK_SIZE,
         }),
@@ -145,10 +144,14 @@ export async function readUrlFromConfig(
     clientIp?: string
 ): Promise<ReadUrlResponse> {
     try {
-        // Normalize the URL first
-        const normalizedUrl = normalizeUrl(urlConfig.url);
-        if (!normalizedUrl) {
-            return { error: "Invalid or unsupported URL", url: urlConfig.url };
+        // The URL goes upstream as given. r.jina.ai already adds a missing scheme,
+        // lowercases the host and rejects bad protocols with a clear message;
+        // rewriting it here only broke pages (www. stripped off hosts with no apex
+        // DNS record, meaningful query params and hash routes dropped). Only the
+        // trim stays: svip finds nothing for a URL with surrounding whitespace.
+        const targetUrl = urlConfig.url.trim();
+        if (!targetUrl) {
+            return { error: "Empty URL", url: urlConfig.url };
         }
 
         const headers: Record<string, string> = {
@@ -193,11 +196,11 @@ export async function readUrlFromConfig(
         // svip also requires a key while r.jina.ai does not, so a keyless read
         // skips extraction instead of sending a request that can only be a 401.
         const question = urlConfig.question?.trim() || undefined;
-        const useSvip = Boolean(normalizedUrl && question && bearerToken);
+        const useSvip = Boolean(targetUrl && question && bearerToken);
 
         // A failure here must not fail the read; it degrades to full content.
         const extractPassages = () =>
-            readWithQuestion(normalizedUrl, question as string, urlConfig, bearerToken).catch(() => null);
+            readWithQuestion(targetUrl, question as string, urlConfig, bearerToken).catch(() => null);
 
         // svip reads the page itself, through r.jina.ai under the caller's key, so
         // a full read running alongside it fetched and billed the same page twice
@@ -212,7 +215,7 @@ export async function readUrlFromConfig(
                     success: true,
                     url: urlConfig.url,
                     structuredData: {
-                        url: passages.url || normalizedUrl,
+                        url: passages.url || targetUrl,
                         title: passages.title,
                         question,
                         snippets: passages.snippets,
@@ -229,13 +232,17 @@ export async function readUrlFromConfig(
                 method: 'POST',
                 signal: AbortSignal.timeout(READ_REQUEST_TIMEOUT_MS),
                 headers,
-                body: JSON.stringify({ url: normalizedUrl }),
+                body: JSON.stringify({ url: targetUrl }),
             }),
             useSvip && wantsPageExtras ? extractPassages() : Promise.resolve(null),
         ]);
 
         if (!response.ok) {
-            return { error: `HTTP ${response.status}: ${response.statusText}`, url: urlConfig.url };
+            // r.jina.ai explains the failure (DNS, timeout, blocked) in `message`;
+            // the bare status line left the caller unable to tell those apart.
+            const body = await response.json().catch(() => null) as { message?: string } | null;
+            const reason = body?.message?.split('\n')[0].slice(0, 300);
+            return { error: `HTTP ${response.status}: ${reason || response.statusText}`, url: urlConfig.url };
         }
 
         const data = await response.json() as any;
