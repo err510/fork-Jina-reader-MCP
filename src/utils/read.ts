@@ -185,8 +185,10 @@ export async function readUrlFromConfig(
         // a question this is an ordinary read and must go to r.jina.ai alone:
         // svip would treat a bare url as a search query. A question of only
         // whitespace is no question at all, hence the trim before the check.
+        // svip also requires a key while r.jina.ai does not, so a keyless read
+        // skips extraction instead of sending a request that can only be a 401.
         const question = urlConfig.question?.trim() || undefined;
-        const useSvip = Boolean(normalizedUrl && question);
+        const useSvip = Boolean(normalizedUrl && question && bearerToken);
 
         // When both are present the passage extraction runs concurrently with the
         // plain read. The read is not wasted work: it is the fallback body if
@@ -259,7 +261,9 @@ export async function readUrlFromConfig(
             // ranked passage.
             structuredData.question = question;
             structuredData.snippet_source = 'full_content';
-            structuredData.note = 'Question-grounded extraction was unavailable for this page; returning full content.';
+            structuredData.note = useSvip
+                ? 'Question-grounded extraction was unavailable for this page; returning full content.'
+                : 'Question-grounded extraction requires a Jina API key; returning full content.';
         }
 
         structuredData.content = content;
