@@ -61,6 +61,9 @@ async function countSegmentChunk(chunk: string, bearerToken: string, apiBaseUrl:
  * Count tokens using Jina Segment API
  */
 async function countTokens(content: string, bearerToken: string, apiBaseUrl: string = 'https://api.jina.ai'): Promise<number> {
+    // /v1/segment needs a key; a keyless read_url would only collect a 401.
+    if (!bearerToken) return estimateTokens(content);
+
     const chunks: string[] = [];
     for (let i = 0; i < content.length; i += SEGMENT_MAX_CHARS) {
         chunks.push(content.slice(i, i + SEGMENT_MAX_CHARS));

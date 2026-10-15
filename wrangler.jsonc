@@ -12,11 +12,7 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": [
-		"nodejs_compat",
-		// mcp.jina.ai shares the jina.ai zone with svip/r/api. Without this,
-		// fetch() to those hosts skips the zone's routing and goes straight to
-		// origin, where every request is rejected with 401.
-		"global_fetch_strictly_public"
+		"nodejs_compat"
 	],
 	"observability": {
 		"enabled": true

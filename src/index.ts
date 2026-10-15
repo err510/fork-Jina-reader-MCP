@@ -136,14 +136,9 @@ export default {
 			props.bearerToken = authHeader.substring(7);
 		}
 
-		// Remember whether the credential came from the caller, so tools that echo
-		// it back can tell it apart from the deployment fallback applied below.
-		props.bearerTokenFromRequest = Boolean(props.bearerToken);
-
-		// if no bearer token add a debug one from env
-		if (!props.bearerToken && env.JINA_API_KEY) {
-			props.bearerToken = env.JINA_API_KEY;
-		}
+		// No shared fallback key: a caller without a key gets the tools that work
+		// anonymously (read_url via r.jina.ai) and a "set your API key" message
+		// from the rest, rather than everyone spending one deployment key.
 
 		// Add Ghost API key for Jina blog search
 		props.ghostApiKey = env.VITE_GHOST_API_KEY;
